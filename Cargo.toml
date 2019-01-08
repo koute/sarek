@@ -13,6 +13,8 @@ keywords = ["machine-learning", "framework", "tensorflow", "keras"]
 categories = []
 description = "A work-in-progress, experimental neural network library utilizing TensorFlow Keras"
 
+exclude = ["examples/mnist/data/**"]
+
 [badges]
 travis-ci = { repository = "koute/sarek", branch = "master" }
 maintenance = { status = "experimental" }
