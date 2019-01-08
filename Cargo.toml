@@ -1,0 +1,37 @@
+[package]
+name = "sarek"
+version = "0.1.0"
+authors = ["Jan Bujak <j@exia.io>"]
+edition = "2018"
+
+repository = "https://github.com/koute/sarek"
+homepage = "https://github.com/koute/sarek"
+documentation = "https://docs.rs/sarek/*/sarek/"
+license = "MIT/Apache-2.0"
+readme = "README.md"
+keywords = ["machine-learning", "framework", "tensorflow", "keras"]
+categories = []
+description = "A work-in-progress, experimental neural network library utilizing TensorFlow Keras"
+
+[badges]
+travis-ci = { repository = "koute/sarek", branch = "master" }
+maintenance = { status = "experimental" }
+
+[dependencies]
+pyo3 = "0.5"
+log = "0.4"
+libc = "0.2"
+smallvec = "0.6"
+lazy_static = "1"
+parking_lot = "0.7"
+decorum = "0.1"
+uuid = { version = "0.7", default-features = false, features = ["v4"] }
+rand = { version = "0.6", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+env_logger = "0.6"
+panic-control = "0.1"
+
+# For the `mnist` example.
+flate2 = "1"
+byteorder = "1"
