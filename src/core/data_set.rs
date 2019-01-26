@@ -66,6 +66,48 @@ impl< I, O > DataSet< I, O >
         &self.expected_output_data
     }
 
+    /// Clones the data sources and splits the set into two at a given index.
+    ///
+    /// ```rust
+    /// # use sarek::{Shape, DataSource, DataSet, SliceSource};
+    /// let data: &[f32] = &[ 1.0, 2.0, 3.0, 4.0 ];
+    /// let expected_data: &[u32] = &[ 10, 20 ];
+    /// let src_in = SliceSource::from( Shape::new_2d( 1, 2 ), data );
+    /// let src_out = SliceSource::from( Shape::new_1d( 1 ), expected_data );
+    /// let mut src = DataSet::new( src_in, src_out );
+    ///
+    /// assert_eq!( src.len(), 2 );
+    ///
+    /// let (src_train, src_test) = src.clone_and_split_at_index( 1 );
+    ///
+    /// assert_eq!( src_train.len(), 1 );
+    /// assert_eq!( src_test.len(), 1 );
+    /// ```
+    pub fn clone_and_split_at_index( self, index: usize )
+        -> (
+            DataSet< SplitDataSource< I >, SplitDataSource< O > >,
+            DataSet< SplitDataSource< I >, SplitDataSource< O > >
+        )
+        where I: Clone, O: Clone
+    {
+        assert!( index <= self.len() );
+
+        let left_range = 0..index;
+        let right_range = index..self.len();
+
+        let right = DataSet {
+            input_data: SplitDataSource::new( self.input_data.clone(), right_range.clone() ),
+            expected_output_data: SplitDataSource::new( self.expected_output_data.clone(), right_range )
+        };
+
+        let left = DataSet {
+            input_data: SplitDataSource::new( self.input_data, left_range.clone() ),
+            expected_output_data: SplitDataSource::new( self.expected_output_data, left_range )
+        };
+
+        (left, right)
+    }
+
     /// Clones the data sources and splits the set into two.
     ///
     /// ```rust
@@ -93,21 +135,8 @@ impl< I, O > DataSet< I, O >
         assert!( split_at >= 0.0 );
         assert!( split_at <= 1.0 );
 
-        let left_count = (self.len() as f32 * split_at) as usize;
-        let left_range = 0..left_count;
-        let right_range = left_count..self.len();
-
-        let right = DataSet {
-            input_data: SplitDataSource::new( self.input_data.clone(), right_range.clone() ),
-            expected_output_data: SplitDataSource::new( self.expected_output_data.clone(), right_range )
-        };
-
-        let left = DataSet {
-            input_data: SplitDataSource::new( self.input_data, left_range.clone() ),
-            expected_output_data: SplitDataSource::new( self.expected_output_data, left_range )
-        };
-
-        (left, right)
+        let index = (self.len() as f32 * split_at) as usize;
+        self.clone_and_split_at_index( index )
     }
 }
 
