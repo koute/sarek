@@ -1,4 +1,12 @@
 use {
+    std::{
+        cmp::{
+            min
+        },
+        iter::{
+            FusedIterator
+        }
+    },
     crate::{
         core::{
             data_source::{
@@ -144,6 +152,81 @@ impl< I, O > DataSet< I, O >
 
         let index = (self.len() as f32 * split_at) as usize;
         self.clone_and_split_at_index( index )
+    }
+
+    /// Returns an iterator over `chunk_size` elements of the data set at a time,
+    /// starting at the beginning.
+    ///
+    /// The chunks will not overlap. If `chunk_size` is not divisible by the size of the data set
+    /// then the last chunk will not have the length of `chunk_size`.
+    ///
+    /// ```rust
+    /// # use sarek::{Shape, DataSource, DataSet, SliceSource};
+    /// let data: &[f32] = &[ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 ];
+    /// let expected_data: &[u32] = &[ 10, 20, 30 ];
+    /// let src_in = SliceSource::from( Shape::new_2d( 1, 2 ), data );
+    /// let src_out = SliceSource::from( Shape::new_1d( 1 ), expected_data );
+    /// let mut src = DataSet::new( src_in, src_out );
+    ///
+    /// assert_eq!( src.len(), 3 );
+    ///
+    /// let mut chunks = src.chunks( 2 );
+    ///
+    /// assert_eq!( chunks.next().unwrap().len(), 2 );
+    /// assert_eq!( chunks.next().unwrap().len(), 1 );
+    /// assert!( chunks.next().is_none() );
+    /// ```
+    pub fn chunks< 'a >( &'a self, chunk_size: usize ) ->
+        impl ExactSizeIterator< Item = DataSet< impl DataSource + 'a, impl DataSource + 'a > > + FusedIterator
+    {
+        struct Iter< 'a, I, O > where I: DataSource, O: DataSource {
+            chunk_size: usize,
+            data_set: &'a DataSet< I, O >,
+            index: usize
+        }
+
+        impl< 'a, I, O > Iterator for Iter< 'a, I, O > where I: DataSource, O: DataSource {
+            type Item = DataSet< SplitDataSource< &'a I >, SplitDataSource< &'a O > >;
+            fn next( &mut self ) -> Option< Self::Item > {
+                if self.index == self.data_set.len() {
+                    return None;
+                }
+
+                let next_index = min( self.index + self.chunk_size, self.data_set.len() );
+                let range = self.index..next_index;
+                self.index = next_index;
+
+                let subset = DataSet {
+                    input_data: SplitDataSource::new( &self.data_set.input_data, range.clone() ),
+                    expected_output_data: SplitDataSource::new( &self.data_set.expected_output_data, range )
+                };
+
+                Some( subset )
+            }
+
+            fn size_hint( &self ) -> (usize, Option< usize >) {
+                if self.chunk_size == 0 {
+                    return (0, Some( 0 ));
+                }
+
+                let total_length = self.data_set.len();
+                let mut remaining = total_length / self.chunk_size;
+                if total_length * self.chunk_size != 0 {
+                    remaining += 1;
+                }
+
+                (remaining, Some( remaining ))
+            }
+        }
+
+        impl< 'a, I, O > ExactSizeIterator for Iter< 'a, I, O > where I: DataSource, O: DataSource {}
+        impl< 'a, I, O > FusedIterator for Iter< 'a, I, O > where I: DataSource, O: DataSource {}
+
+        Iter {
+            chunk_size,
+            data_set: self,
+            index: 0
+        }
     }
 }
 
