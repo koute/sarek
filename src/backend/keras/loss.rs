@@ -1,6 +1,6 @@
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[non_exhaustive]
-pub enum Loss {
+pub enum LossKind {
     MeanSquaredError,
 
     /// A loss function for multiclass classification tasks.

@@ -14,7 +14,7 @@ use {
                     Context
                 },
                 loss::{
-                    Loss
+                    LossKind
                 },
                 py_array::{
                     PyArray,
@@ -211,14 +211,14 @@ impl ModelInstance {
                 }
 
                 let loss = match output_kind {
-                    OutputKind::Regression => Loss::MeanSquaredError,
-                    OutputKind::SparseCategory => Loss::SparseCategoricalCrossEntropy
+                    OutputKind::Regression => LossKind::MeanSquaredError,
+                    OutputKind::SparseCategory => LossKind::SparseCategoricalCrossEntropy
                 };
 
                 let loss = match loss {
-                    Loss::SparseCategoricalCrossEntropy => "sparse_categorical_crossentropy",
-                    Loss::CategoricalCrossEntropy => "categorical_crossentropy",
-                    Loss::MeanSquaredError => "mean_squared_error"
+                    LossKind::SparseCategoricalCrossEntropy => "sparse_categorical_crossentropy",
+                    LossKind::CategoricalCrossEntropy => "categorical_crossentropy",
+                    LossKind::MeanSquaredError => "mean_squared_error"
                 };
 
                 let metrics = PyList::new( py, &["accuracy"] );
