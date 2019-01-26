@@ -387,6 +387,13 @@ impl< A > IntoLayerIter for A where A: Into< Layer > {
     }
 }
 
+impl IntoLayerIter for () {
+    type Iter = iter::Empty< Layer >;
+    fn into_layer_iter( self ) -> Self::Iter {
+        iter::empty()
+    }
+}
+
 /*
     This is what this generates:
 
