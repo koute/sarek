@@ -66,6 +66,13 @@ impl< I, O > DataSet< I, O >
         &self.expected_output_data
     }
 
+    pub fn as_ref( &self ) -> DataSet< &I, &O > {
+        DataSet {
+            input_data: &self.input_data,
+            expected_output_data: &self.expected_output_data
+        }
+    }
+
     /// Clones the data sources and splits the set into two at a given index.
     ///
     /// ```rust
