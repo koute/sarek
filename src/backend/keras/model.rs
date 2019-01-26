@@ -18,7 +18,6 @@ use {
                 },
                 py_array::{
                     PyArray,
-                    PyArraySource,
                     TypedPyArray
                 },
                 py_utils::{
@@ -39,6 +38,9 @@ use {
             },
             name::{
                 Name
+            },
+            raw_array_source::{
+                RawArraySource
             },
             shape::{
                 Shape
@@ -345,7 +347,7 @@ impl ModelInstance {
             .unwrap()
     }
 
-    fn predict_raw< I >( &mut self, input_data: &I ) -> PyArraySource where I: DataSource + Sync {
+    fn predict_raw< I >( &mut self, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
         let input_shape = input_data.shape();
         assert_eq!(
             self.input_shape(),
@@ -361,7 +363,7 @@ impl ModelInstance {
 
             let result = self.obj.getattr( py, "predict" ).unwrap().call( py, (inputs.as_py_obj(),), None ).map_err( |err| py_err( py, err ) ).unwrap();
             let result = unsafe { PyArray::from_object_unchecked( py, result ) };
-            PyArraySource::new( result )
+            result.into_raw_array()
         })
     }
 
@@ -381,7 +383,7 @@ impl ModelInstance {
             },
             OutputKind::SparseCategory => {
                 let count = result.len();
-                let mut categories = PyArraySource::new_uninitialized( count, 1.into(), Type::U32 );
+                let mut categories = RawArraySource::new_uninitialized( count, 1.into(), Type::U32 );
                 let categories_slice = cast_slice_mut::< u32 >( categories.as_bytes_mut() );
                 let result = result.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
                 for index in 0..count {

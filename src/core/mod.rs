@@ -6,6 +6,7 @@ pub mod indices;
 pub mod into_range;
 pub mod name;
 pub mod type_cast_error;
+pub mod raw_array_source;
 pub mod shape;
 pub mod slice_source;
 pub mod split_data_source;

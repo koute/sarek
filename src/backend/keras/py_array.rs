@@ -25,20 +25,12 @@ use {
             }
         },
         core::{
-            array::{
-                ArrayRef,
-                ArrayMut,
-                ToArrayRef
-            },
-            data_source::{
-                DataSource
-            },
             data_type::{
                 DataType,
                 Type
             },
-            indices::{
-                ToIndices
+            raw_array_source::{
+                RawArraySource
             },
             shape::{
                 Shape
@@ -208,39 +200,19 @@ impl PyArray {
     pub(crate) fn as_py_obj( &self ) -> &PyObject {
         &self.obj
     }
-}
 
-pub struct PyArraySource {
-    pointer: *mut u8,
-    length: usize,
-    shape: Shape,
-    data_type: Type
-}
-
-unsafe impl Send for PyArraySource {}
-unsafe impl Sync for PyArraySource {}
-
-impl Drop for PyArraySource {
-    fn drop( &mut self ) {
-        unsafe {
-            libc::free( self.pointer as *mut libc::c_void );
-        }
-    }
-}
-
-impl PyArraySource {
     // This is kinda sketchy, but it works I guess.
-    pub fn new( mut array: PyArray ) -> Self {
-        assert!( array.dimension_count() > 1 );
+    pub(crate) fn into_raw_array( mut self ) -> RawArraySource {
+        assert!( self.dimension_count() > 1 );
 
-        let original_shape = array.shape();
+        let original_shape = self.shape();
         let length = original_shape.into_iter().next().unwrap();
         let shape = original_shape.into_iter().skip( 1 ).collect();
-        let data_type = array.data_type();
+        let data_type = self.data_type();
 
         let pointer;
         {
-            let array_object = array.as_array_object_mut();
+            let array_object = self.as_array_object_mut();
 
             // Make sure the data is actually owned.
             assert_ne!( array_object.flags & ffi::NPY_ARRAY_OWNDATA, 0 );
@@ -264,61 +236,9 @@ impl PyArraySource {
             array_object.data = 0 as _;
         }
 
-        PyArraySource {
-            pointer,
-            length,
-            shape,
-            data_type
+        unsafe {
+            RawArraySource::from_pointer( pointer, length, shape, data_type )
         }
-    }
-
-    pub fn new_uninitialized( length: usize, shape: Shape, data_type: Type ) -> Self {
-        let byte_length = length * shape.product() * data_type.byte_size();
-        let pointer = unsafe {
-            libc::malloc( byte_length ) as *mut u8
-        };
-
-        PyArraySource {
-            pointer,
-            length,
-            shape,
-            data_type
-        }
-    }
-
-    fn as_bytes( &self ) -> &[u8] {
-        unsafe { slice::from_raw_parts( self.pointer, self.length * self.shape.product() * self.data_type.byte_size() ) }
-    }
-
-    pub(crate) fn as_bytes_mut( &mut self ) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut( self.pointer, self.length * self.shape.product() * self.data_type.byte_size() ) }
-    }
-}
-
-impl DataSource for PyArraySource {
-    fn data_type( &self ) -> Type {
-        self.data_type
-    }
-
-    fn shape( &self ) -> Shape {
-        self.shape.clone()
-    }
-
-    fn len( &self ) -> usize {
-        self.length
-    }
-
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
-        let input = self.as_bytes();
-        let input = ArrayRef::new( self.shape(), self.data_type(), input );
-        let mut output = ArrayMut::new( self.shape(), self.data_type(), output );
-        output.gather_from( indices, &input );
-    }
-}
-
-impl ToArrayRef for PyArraySource {
-    fn to_array_ref( &self ) -> ArrayRef {
-        ArrayRef::new( self.shape(), self.data_type(), self.as_bytes() )
     }
 }
 
