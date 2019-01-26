@@ -185,7 +185,7 @@ impl< I, O > Trainer< I, O >
                 batch_index += 1;
                 if batch_index == self.batch_size {
                     batch_index = 0;
-                    loss += self.model_instance.train_on_batch( py, inputs.as_py_obj(), outputs.as_py_obj() );
+                    loss += self.model_instance.train_on_batch( py, &inputs, &outputs );
                 }
             }
 

@@ -327,7 +327,10 @@ impl ModelInstance {
         SliceSource::from( Shape::new_1d( weight_count ), output )
     }
 
-    pub(crate) fn train_on_batch( &mut self, py: Python, inputs: &PyObject, outputs: &PyObject ) -> f32 {
+    pub(crate) fn train_on_batch( &mut self, py: Python, inputs: &PyArray, outputs: &PyArray ) -> f32 {
+        debug_assert_eq!( inputs.shape().x(), outputs.shape().x() );
+        let inputs = inputs.as_py_obj();
+        let outputs = outputs.as_py_obj();
         let loss = self.obj.getattr( py, "train_on_batch" ).unwrap()
             .call( py, (inputs, outputs), None )
             .map_err( |err| py_err( py, err ) ).unwrap();
