@@ -33,6 +33,10 @@ use {
             data_source::{
                 DataSource
             },
+            data_type::{
+                Type,
+                cast_slice_mut
+            },
             name::{
                 Name
             },
@@ -341,7 +345,7 @@ impl ModelInstance {
             .unwrap()
     }
 
-    pub fn predict< I >( &mut self, input_data: &I ) -> impl ToArrayRef + DataSource where I: DataSource + Sync {
+    fn predict_raw< I >( &mut self, input_data: &I ) -> PyArraySource where I: DataSource + Sync {
         let input_shape = input_data.shape();
         assert_eq!(
             self.input_shape(),
@@ -357,37 +361,41 @@ impl ModelInstance {
 
             let result = self.obj.getattr( py, "predict" ).unwrap().call( py, (inputs.as_py_obj(),), None ).map_err( |err| py_err( py, err ) ).unwrap();
             let result = unsafe { PyArray::from_object_unchecked( py, result ) };
-            let result = PyArraySource::new( result );
-
-            match self.output_kind {
-                OutputKind::Regression => {
-                    debug_assert_eq!(
-                        result.shape(),
-                        self.model.output_shape(),
-                        "Internal error: expected the output of the network to have a shape of {}; instead it has a shape of {}",
-                        self.model.output_shape(),
-                        result.shape()
-                    );
-
-                    result
-                },
-                OutputKind::SparseCategory => {
-                    let count = result.len();
-                    let mut categories = TypedPyArray::< u32 >::new( py, (count, 1).into() );
-                    let result = result.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
-                    for index in 0..count {
-                        let category = result[ index ]
-                            .iter()
-                            .enumerate()
-                            .max_by_key( |(_, &value)| decorum::Finite::from( value ) )
-                            .unwrap()
-                            .0;
-                        categories.as_slice_mut()[ index ] = category as u32;
-                    }
-
-                    PyArraySource::new( categories.into() )
-                }
-            }
+            PyArraySource::new( result )
         })
+    }
+
+    pub fn predict< I >( &mut self, input_data: &I ) -> impl ToArrayRef + DataSource where I: DataSource + Sync {
+        let result = self.predict_raw( input_data );
+        match self.output_kind {
+            OutputKind::Regression => {
+                debug_assert_eq!(
+                    result.shape(),
+                    self.model.output_shape(),
+                    "Internal error: expected the output of the network to have a shape of {}; instead it has a shape of {}",
+                    self.model.output_shape(),
+                    result.shape()
+                );
+
+                result
+            },
+            OutputKind::SparseCategory => {
+                let count = result.len();
+                let mut categories = PyArraySource::new_uninitialized( count, 1.into(), Type::U32 );
+                let categories_slice = cast_slice_mut::< u32 >( categories.as_bytes_mut() );
+                let result = result.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
+                for index in 0..count {
+                    let category = result[ index ]
+                        .iter()
+                        .enumerate()
+                        .max_by_key( |(_, &value)| decorum::Finite::from( value ) )
+                        .unwrap()
+                        .0;
+                    categories_slice[ index ] = category as u32;
+                }
+
+                categories
+            }
+        }
     }
 }

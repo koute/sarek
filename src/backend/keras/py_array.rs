@@ -272,8 +272,26 @@ impl PyArraySource {
         }
     }
 
+    pub fn new_uninitialized( length: usize, shape: Shape, data_type: Type ) -> Self {
+        let byte_length = length * shape.product() * data_type.byte_size();
+        let pointer = unsafe {
+            libc::malloc( byte_length ) as *mut u8
+        };
+
+        PyArraySource {
+            pointer,
+            length,
+            shape,
+            data_type
+        }
+    }
+
     fn as_bytes( &self ) -> &[u8] {
         unsafe { slice::from_raw_parts( self.pointer, self.length * self.shape.product() * self.data_type.byte_size() ) }
+    }
+
+    pub(crate) fn as_bytes_mut( &mut self ) -> &mut [u8] {
+        unsafe { slice::from_raw_parts_mut( self.pointer, self.length * self.shape.product() * self.data_type.byte_size() ) }
     }
 }
 
