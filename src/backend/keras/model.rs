@@ -329,6 +329,8 @@ impl ModelInstance {
 
     pub(crate) fn train_on_batch( &mut self, py: Python, inputs: &PyArray, outputs: &PyArray ) -> f32 {
         debug_assert_eq!( inputs.shape().x(), outputs.shape().x() );
+        let batch_size = inputs.shape().x();
+
         let inputs = inputs.as_py_obj();
         let outputs = outputs.as_py_obj();
         let loss = self.obj.getattr( py, "train_on_batch" ).unwrap()
@@ -343,11 +345,15 @@ impl ModelInstance {
             "loss"
         );
 
-        loss.cast_as::< PyList >( py ).unwrap()
+        let loss: f32 = loss.cast_as::< PyList >( py ).unwrap()
             .get_item( 0 )
             .extract()
             .map_err( |err| py_err( py, err ) )
-            .unwrap()
+            .unwrap();
+
+        // Tensorflow averages the loss it returns over the batch size for some reason;
+        // we reverse it so that the losses are more comparable when changing the batch size.
+        loss * (batch_size as f32)
     }
 
     fn predict_raw< I >( &mut self, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
