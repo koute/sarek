@@ -33,7 +33,11 @@ rand = { version = "0.6", default-features = false, features = ["std"] }
 [dev-dependencies]
 env_logger = "0.6"
 panic-control = "0.1"
+testutils = { path = "testutils" }
 
 # For the `mnist` example.
 flate2 = "1"
 byteorder = "1"
+
+[workspace]
+members = [".", "testutils"]
