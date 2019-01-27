@@ -4,7 +4,6 @@ use {
         Model,
         Trainer,
         TrainingOpts,
-        ToArrayRef,
         layers::{
             *
         }
@@ -50,20 +49,8 @@ fn main() {
     let mut instance = Trainer::new_with_opts( &ctx, model, training_data, opts ).unwrap();
     for _ in 0..4 {
         instance.train();
+
+        let loss = instance.test( &test_data );
+        info!( "Accuracy on the test set: {:.02}% (loss = {})", loss.accuracy().unwrap() * 100.0, loss.get() );
     }
-
-    let predictions = instance.predict( test_data.input_data() );
-    let predictions = predictions.to_slice::< u32 >().unwrap();
-    let expected = test_data.expected_output_data().to_slice::< u32 >().unwrap();
-    assert_eq!( predictions.len(), expected.len() );
-
-    let total_count = predictions.len();
-    let mut correct_count = 0;
-    for (predicted, expected) in predictions.iter().zip( expected.iter() ) {
-        if predicted == expected {
-            correct_count += 1;
-        }
-    }
-
-    info!( "Accuracy on the test set: {:.02}%", (correct_count as f32 / total_count as f32) * 100.0 );
 }
