@@ -139,10 +139,6 @@ impl< I, O > Trainer< I, O >
         &self.data_set
     }
 
-    pub fn test< S >( &self, inputs: &S ) -> f32 where S: DataSource {
-        unimplemented!();
-    }
-
     /// Trains the network for the whole epoch (the whole data set)
     /// and returns the training loss.
     pub fn train( &mut self ) -> f32 {

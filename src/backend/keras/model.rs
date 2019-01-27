@@ -29,6 +29,9 @@ use {
             array::{
                 ToArrayRef
             },
+            data_set::{
+                DataSet
+            },
             data_source::{
                 DataSource
             },
@@ -60,6 +63,9 @@ use {
                 LayerDropout,
                 LayerPrototype,
                 LayerSoftmax
+            },
+            loss::{
+                Loss
             },
             model::{
                 Model
@@ -417,6 +423,104 @@ impl ModelInstance {
 
                 categories
             }
+        }
+    }
+
+    fn test_regression< I, O >( &mut self, chunk_size: usize, test_data: &DataSet< I, O > ) -> Loss
+        where I: DataSource + Sync, O: DataSource + Sync
+    {
+        let mut total_loss = 0.0;
+
+        let mut expected: Vec< f32 > = Vec::new();
+        expected.reserve( chunk_size );
+        unsafe {
+            expected.set_len( chunk_size );
+        }
+
+        let element_size = test_data.expected_output_data().shape().product();
+        for test_chunk in test_data.chunks( chunk_size ) {
+            let chunk_size = test_chunk.len();
+            let predictions = self.predict_raw( test_chunk.input_data() );
+            debug_assert_eq!( predictions.len(), chunk_size );
+
+            let expected = &mut expected[ ..chunk_size * element_size ];
+            test_chunk.expected_output_data().gather_into( .., expected );
+
+            let predictions = predictions.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
+            let predictions = predictions.as_slice();
+            for (expected, predicted) in expected.chunks_exact( element_size ).zip( predictions.chunks_exact( element_size ) ) {
+                total_loss += predicted.iter().zip( expected.iter() )
+                    .map( |(output, expected_output)| (output - expected_output) * 2.0 / element_size as f32 )
+                    .map( |output_error| output_error * output_error )
+                    .sum::< f32 >()
+                    * element_size as f32
+                    / 4.0;
+            }
+        }
+
+        Loss {
+            loss: total_loss,
+            accuracy: None
+        }
+    }
+
+    fn test_classification< I, O >( &mut self, chunk_size: usize, test_data: &DataSet< I, O > ) -> Loss
+        where I: DataSource + Sync, O: DataSource + Sync
+    {
+        let mut total_loss = 0.0;
+
+        let mut correct_count = 0;
+        let mut expected: Vec< u32 > = Vec::new();
+        expected.reserve( chunk_size );
+        unsafe {
+            expected.set_len( chunk_size );
+        }
+
+        for test_chunk in test_data.chunks( chunk_size ) {
+            let chunk_size = test_chunk.len();
+            let predictions = self.predict_raw( test_chunk.input_data() );
+            debug_assert_eq!( predictions.len(), chunk_size );
+
+            let expected = &mut expected[ ..chunk_size ];
+            test_chunk.expected_output_data().gather_into( .., expected );
+
+            let predictions = predictions.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
+            for index in 0..chunk_size {
+                let prediction = &predictions[ index ];
+                let predicted = prediction
+                    .iter()
+                    .enumerate()
+                    .max_by_key( |(_, &value)| decorum::Finite::from( value ) )
+                    .unwrap()
+                    .0 as u32;
+
+                let expected = expected[ index ];
+                if predicted == expected {
+                    correct_count += 1;
+                }
+
+                let sum: f32 = prediction.iter().sum();
+                total_loss += -(prediction[ expected as usize ] / sum).ln();
+            }
+        }
+
+        let total_count = test_data.len();
+        let accuracy = correct_count as f32 / total_count as f32;
+        Loss {
+            loss: total_loss,
+            accuracy: Some( accuracy )
+        }
+    }
+
+    pub fn test< I, O >( &mut self, test_data: &DataSet< I, O > ) -> Loss
+        where I: DataSource + Sync, O: DataSource + Sync
+    {
+        // TODO: Pick the chunk size more intelligently.
+        let chunk_size = 128;
+
+        match self.output_kind {
+            OutputKind::Regression => self.test_regression( chunk_size, test_data ),
+            OutputKind::SparseCategory => self.test_classification( chunk_size, test_data )
         }
     }
 }
