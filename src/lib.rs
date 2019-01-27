@@ -80,6 +80,9 @@ pub use crate::{
             LayerPrototype,
             IntoLayerIter
         },
+        loss::{
+            Loss
+        },
         model::{
             Model
         },
