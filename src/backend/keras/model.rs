@@ -186,6 +186,16 @@ impl ModelInstance {
                 }
             }
 
+            if layers.is_empty() {
+                let kwargs = PyDict::new( py );
+                let shape = PyTuple::new( py, &model.input_shape() );
+                kwargs.set_item( "input_shape", shape ).unwrap();
+                kwargs.set_item( "trainable", is_trainable ).unwrap();
+
+                let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                layers.push( layer );
+            }
+
             let layers = PyList::new( py, &layers );
             let model_obj = models_ns.getattr( "Sequential" ).unwrap().call( (layers,), None )
                 .map_err( |err| py_err( py, err ) ).unwrap();
