@@ -59,7 +59,8 @@ pub struct Trainer< I, O >
     model_instance: ModelInstance,
     data_set: DataSet< I, O >,
     position: usize,
-    indexes: Vec< usize >
+    indexes: Vec< usize >,
+    epoch_counter: usize
 }
 
 impl< I, O > Deref for Trainer< I, O >
@@ -119,7 +120,8 @@ impl< I, O > Trainer< I, O >
             batch_size,
             data_set,
             position: 0,
-            indexes: (0..length).collect()
+            indexes: (0..length).collect(),
+            epoch_counter: 0
         };
 
         trainer.shuffle();
@@ -185,7 +187,8 @@ impl< I, O > Trainer< I, O >
                 }
             }
 
-            info!( "Finished a training epoch in {}s with a loss of {}", now.elapsed().as_secs(), loss );
+            self.epoch_counter += 1;
+            info!( "Finished a training epoch #{} in {}s with a loss of {}", self.epoch_counter, now.elapsed().as_secs(), loss );
             loss
         })
     }
