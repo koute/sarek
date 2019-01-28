@@ -144,6 +144,10 @@ impl< I, O > Trainer< I, O >
     /// Trains the network for the whole epoch (the whole data set)
     /// and returns the training loss.
     pub fn train( &mut self ) -> f32 {
+        if self.epoch_counter == 0 {
+            info!( "Starting training on a data set with {} elements...", self.data_set.len() );
+        }
+
         let now = Instant::now();
         Context::gil( move |py| {
             let input_data = self.data_set.input_data();
