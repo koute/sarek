@@ -317,22 +317,36 @@ impl< 'a, T > IntoLayerIter for &'a [T] where &'a T: Into< Layer > {
 }
 
 macro_rules! impl_into_layer_iter {
-    (@access $this:expr, A) => { $this.0 };
-    (@access $this:expr, B) => { $this.1 };
-    (@access $this:expr, C) => { $this.2 };
-    (@access $this:expr, D) => { $this.3 };
-    (@access $this:expr, E) => { $this.4 };
-    (@access $this:expr, F) => { $this.5 };
-    (@access $this:expr, G) => { $this.6 };
-    (@access $this:expr, H) => { $this.7 };
-    (@access $this:expr, I) => { $this.8 };
-    (@access $this:expr, J) => { $this.9 };
-    (@access $this:expr, K) => { $this.10 };
-    (@access $this:expr, L) => { $this.11 };
-    (@access $this:expr, M) => { $this.12 };
-    (@access $this:expr, N) => { $this.13 };
-    (@access $this:expr, O) => { $this.14 };
-    (@access $this:expr, P) => { $this.15 };
+    (@access $this:expr, L00) => { $this.0 };
+    (@access $this:expr, L01) => { $this.1 };
+    (@access $this:expr, L02) => { $this.2 };
+    (@access $this:expr, L03) => { $this.3 };
+    (@access $this:expr, L04) => { $this.4 };
+    (@access $this:expr, L05) => { $this.5 };
+    (@access $this:expr, L06) => { $this.6 };
+    (@access $this:expr, L07) => { $this.7 };
+    (@access $this:expr, L08) => { $this.8 };
+    (@access $this:expr, L09) => { $this.9 };
+    (@access $this:expr, L10) => { $this.10 };
+    (@access $this:expr, L11) => { $this.11 };
+    (@access $this:expr, L12) => { $this.12 };
+    (@access $this:expr, L13) => { $this.13 };
+    (@access $this:expr, L14) => { $this.14 };
+    (@access $this:expr, L15) => { $this.15 };
+    (@access $this:expr, L16) => { $this.16 };
+    (@access $this:expr, L17) => { $this.17 };
+    (@access $this:expr, L18) => { $this.18 };
+    (@access $this:expr, L19) => { $this.19 };
+    (@access $this:expr, L20) => { $this.20 };
+    (@access $this:expr, L21) => { $this.21 };
+    (@access $this:expr, L22) => { $this.22 };
+    (@access $this:expr, L23) => { $this.23 };
+    (@access $this:expr, L24) => { $this.24 };
+    (@access $this:expr, L25) => { $this.25 };
+    (@access $this:expr, L26) => { $this.26 };
+    (@access $this:expr, L27) => { $this.27 };
+    (@access $this:expr, L28) => { $this.28 };
+    (@access $this:expr, L29) => { $this.29 };
 
     (@body $this:expr, $initial_type:ident $($type:ident)*) => {
         iter::once( $this.0.into() )
@@ -374,7 +388,11 @@ macro_rules! impl_into_layer_iter {
     () => {
         impl_into_layer_iter!(
             @call
-                [A B C D E F G H I J K L M N O P]
+                [
+                    L00 L01 L02 L03 L04 L05 L06 L07 L08 L09
+                    L10 L11 L12 L13 L14 L15 L16 L17 L18 L19
+                    L20 L21 L22 L23 L24 L25 L26 L27 L28 L29
+                ]
                 []
         );
     };
