@@ -15,6 +15,8 @@ Currently this only works on Rust nightly and requires Python 3.7, TensorFlow 1.
 **at runtime** as it's using TensorFlow Keras (through Python!). Might work with older versions;
 no guarantees though.
 
+Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if possible use 1.13
+
 ## Tentative short-term roadmap
 
    * [X] Support TensorFlow Keras as a backend (battle tested, but very heavy)
@@ -33,8 +35,8 @@ no guarantees though.
          * [ ] Pooling
          * [ ] RNN (maybe)
    * [X] Add a MNIST example
-   * [ ] Add pure-Rust Xavier weight initialization
-   * [ ] Add weight pretraining
+   * [X] Add LSUV weight initialization
+      * [ ] Replace the random orthogonal matrix generator with a pure Rust one
    * [ ] Add a native backend (reimplement the compute parts using pure Rust code)
       * [ ] Use multiple threads
       * [ ] Use SIMD
