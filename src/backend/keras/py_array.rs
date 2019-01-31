@@ -21,7 +21,10 @@ use {
     crate::{
         backend::{
             keras::{
-                ffi
+                ffi,
+                py_utils::{
+                    py_err
+                }
             }
         },
         core::{
@@ -56,8 +59,9 @@ struct ArrayInit< 'a > {
 }
 
 fn dtype( py: Python, obj: &PyObject ) -> String {
+    // https://docs.scipy.org/doc/numpy-1.14.0/reference/generated/numpy.dtype.html
     obj
-        .getattr( py, "dtype" ).unwrap() // https://docs.scipy.org/doc/numpy-1.14.0/reference/generated/numpy.dtype.html
+        .getattr( py, "dtype" ).map_err( |err| py_err( py, err ) ).unwrap()
         .getattr( py, "name" ).unwrap()
         .extract( py ).unwrap()
 }
