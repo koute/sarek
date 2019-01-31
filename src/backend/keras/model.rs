@@ -286,31 +286,36 @@ impl ModelInstance {
         }
 
         Context::gil( |py| {
-            let weights = match layer {
-                Layer::Dense( layer ) => {
-                    let bias_count = layer.size;
+            self.set_weights_for_layer( py, &input_shape, layer, weights );
+        });
 
-                    let list = PyList::empty( py );
-                    let mut weight_array = TypedPyArray::< f32 >::new( py, Shape::new_2d( input_shape.product(), layer.size ) );
-                    let mut bias_array = TypedPyArray::< f32 >::new( py, Shape::new_1d( bias_count ) );
-                    weight_array.as_slice_mut().copy_from_slice( &weights[ bias_count.. ] );
-                    bias_array.as_slice_mut().copy_from_slice( &weights[ ..bias_count ] );
-                    list.append( weight_array ).unwrap();
-                    list.append( bias_array ).unwrap();
-                    list
-                },
-                Layer::Activation( _ ) |
-                Layer::Dropout( _ ) |
-                Layer::IntoCategory( _ ) |
-                Layer::Softmax( _ )
-                    => unreachable!()
-            };
+        Ok(())
+    }
 
-            let layer_name = layer_name.to_string();
-            let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name,), None ).unwrap();
-            layer.getattr( py, "set_weights" ).unwrap().call( py, (weights,), None ).map_err( |err| py_err( py, err ) ).unwrap();
-            Ok(())
-        })
+    fn set_weights_for_layer( &self, py: Python, input_shape: &Shape, layer: &Layer, weights: &[f32] ) {
+        let weights = match layer {
+            Layer::Dense( layer ) => {
+                let bias_count = layer.size;
+
+                let list = PyList::empty( py );
+                let mut weight_array = TypedPyArray::< f32 >::new( py, Shape::new_2d( input_shape.product(), layer.size ) );
+                let mut bias_array = TypedPyArray::< f32 >::new( py, Shape::new_1d( bias_count ) );
+                weight_array.as_slice_mut().copy_from_slice( &weights[ bias_count.. ] );
+                bias_array.as_slice_mut().copy_from_slice( &weights[ ..bias_count ] );
+                list.append( weight_array ).unwrap();
+                list.append( bias_array ).unwrap();
+                list
+            },
+            Layer::Activation( _ ) |
+            Layer::Dropout( _ ) |
+            Layer::IntoCategory( _ ) |
+            Layer::Softmax( _ )
+                => unreachable!()
+        };
+
+        let layer_name = layer.name().to_string();
+        let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name,), None ).unwrap();
+        layer.getattr( py, "set_weights" ).unwrap().call( py, (weights,), None ).map_err( |err| py_err( py, err ) ).unwrap();
     }
 
     pub fn get_weights< N >( &self, layer_name: N ) -> impl ToArrayRef + DataSource where N: Into< Name > {
