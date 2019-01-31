@@ -88,6 +88,12 @@ impl< 'a > From< &'a str > for Name {
     }
 }
 
+impl< 'a > From< &'a Name > for Name {
+    fn from( name: &'a Name ) -> Self {
+        name.clone()
+    }
+}
+
 #[test]
 fn test_names_are_compared_by_their_string_representations() {
     let name_1 = Name::new_unique();
