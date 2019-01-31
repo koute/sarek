@@ -13,7 +13,10 @@ use {
                 DataSource
             },
             data_type::{
-                Type
+                DataType,
+                Type,
+                cast_slice,
+                cast_slice_mut
             },
             indices::{
                 ToIndices
@@ -73,6 +76,22 @@ impl RawArraySource {
 
     pub(crate) fn as_bytes_mut( &mut self ) -> &mut [u8] {
         unsafe { slice::from_raw_parts_mut( self.pointer, self.length * self.shape.product() * self.data_type.byte_size() ) }
+    }
+
+    pub(crate) fn as_slice< T >( &self ) -> Option< &[T] > where T: DataType {
+        if self.data_type == T::TYPE {
+            Some( cast_slice( self.as_bytes() ) )
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn as_slice_mut< T >( &mut self ) -> Option< &mut [T] > where T: DataType {
+        if self.data_type == T::TYPE {
+            Some( cast_slice_mut( self.as_bytes_mut() ) )
+        } else {
+            None
+        }
     }
 }
 
