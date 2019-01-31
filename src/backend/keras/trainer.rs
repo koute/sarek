@@ -12,10 +12,13 @@ use {
         info
     },
     rand::{
-        RngCore,
+        SeedableRng,
         seq::{
             SliceRandom
         }
+    },
+    rand_pcg::{
+        Pcg32
     },
     crate::{
         backend::{
@@ -60,7 +63,8 @@ pub struct Trainer< I, O >
     data_set: DataSet< I, O >,
     position: usize,
     indexes: Vec< usize >,
-    epoch_counter: usize
+    epoch_counter: usize,
+    rng: Pcg32
 }
 
 impl< I, O > Deref for Trainer< I, O >
@@ -121,7 +125,8 @@ impl< I, O > Trainer< I, O >
             data_set,
             position: 0,
             indexes: (0..length).collect(),
-            epoch_counter: 0
+            epoch_counter: 0,
+            rng: Pcg32::seed_from_u64( 123456 )
         };
 
         trainer.shuffle();
@@ -198,11 +203,6 @@ impl< I, O > Trainer< I, O >
     }
 
     fn shuffle( &mut self ) {
-        let mut rng = rand::thread_rng();
-        self.shuffle_with_rng( &mut rng );
-    }
-
-    fn shuffle_with_rng( &mut self, rng: &mut RngCore ) {
-        self.indexes.shuffle( rng );
+        self.indexes.shuffle( &mut self.rng );
     }
 }
