@@ -1,4 +1,10 @@
 use {
+    std::{
+        error::{
+            Error
+        },
+        fmt
+    },
     pyo3::{
         prelude::*,
         types::{
@@ -96,10 +102,49 @@ pub struct ModelInstance {
 }
 
 #[derive(Debug)]
-pub struct ModelCompilationError(());
+pub enum ModelCompilationError {}
 
 #[derive(Debug)]
 pub struct SetWeightsError(());
+
+impl fmt::Display for ModelCompilationError {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        write!( fmt, "model compilation failed" )
+    }
+}
+
+impl fmt::Display for SetWeightsError {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        write!( fmt, "failed to set weights" )
+    }
+}
+
+impl Error for ModelCompilationError {}
+impl Error for SetWeightsError {}
+
+// TODO: Replace this with pure Rust code.
+pub(crate) fn ortho_weights( shape: Shape ) -> RawArraySource {
+    Context::gil( move |py| {
+        let code = concat!(
+            "flat_shape = (shape[0], np.prod(shape[1:]))\n",
+            "a = np.random.standard_normal(flat_shape)\n",
+            "u, _, v = np.linalg.svd(a, full_matrices=False)\n",
+            "q = u if u.shape == flat_shape else v\n",
+            "q = q.reshape(shape)\n",
+            "q = q.astype('float32')\n",
+            "q"
+        );
+        let shape = PyTuple::new( py, &shape );
+        let args = PyDict::new( py );
+        let np = py.import( "numpy" ).unwrap();
+        args.set_item( "np", np ).unwrap();
+        args.set_item( "shape", shape.to_object( py ) ).unwrap();
+        py.run( code, None, Some( args ) ).map_err( |err| py_err( py, err ) ).unwrap();
+        let result = args.get_item( "q" ).unwrap();
+        let result = unsafe { PyArray::from_object_unchecked( py, result.to_object( py ) ) };
+        result.into_raw_array()
+    })
+}
 
 impl ModelInstance {
     pub fn new( ctx: &Context, model: Model ) -> Result< ModelInstance, ModelCompilationError > {
@@ -257,6 +302,10 @@ impl ModelInstance {
         })
     }
 
+    pub(crate) fn model( &self ) -> &Model {
+        &self.model
+    }
+
     pub fn input_shape( &self ) -> Shape {
         self.model.input_shape()
     }
@@ -377,7 +426,7 @@ impl ModelInstance {
         loss * (batch_size as f32)
     }
 
-    fn predict_raw< I >( &mut self, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
+    pub(crate) fn predict_raw< I >( &mut self, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
         let input_shape = input_data.shape();
         assert_eq!(
             self.input_shape(),

@@ -11,14 +11,16 @@ use {
 
 pub struct TrainingOpts {
     pub(crate) optimizer: Optimizer,
-    pub(crate) batch_size: Option< usize >
+    pub(crate) batch_size: Option< usize >,
+    pub(crate) pretrain_weights: bool
 }
 
 impl TrainingOpts {
     pub fn new() -> Self {
         TrainingOpts {
             optimizer: OptimizerAdam::new().into(),
-            batch_size: None
+            batch_size: None,
+            pretrain_weights: true
         }
     }
 
@@ -34,5 +36,9 @@ impl TrainingOpts {
     pub fn set_batch_size( &mut self, batch_size: usize ) {
         assert_ne!( batch_size, 0, "The batch size cannot be zero" );
         self.batch_size = Some( batch_size );
+    }
+
+    pub fn disable_weight_pretraining( &mut self ) {
+        self.pretrain_weights = false;
     }
 }

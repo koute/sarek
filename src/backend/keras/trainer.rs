@@ -1,5 +1,9 @@
 use {
     std::{
+        error::{
+            Error
+        },
+        fmt,
         ops::{
             Deref,
             DerefMut
@@ -44,6 +48,10 @@ use {
             }
         },
         nn::{
+            lsuv::{
+                InitializeWeightsError,
+                initialize_weights
+            },
             model::{
                 Model
             },
@@ -53,6 +61,37 @@ use {
         }
     }
 };
+
+#[derive(Debug)]
+pub enum TrainerInitializationError {
+    ModelCompilationError( ModelCompilationError ),
+    InitializeWeightsError( InitializeWeightsError )
+}
+
+impl fmt::Display for TrainerInitializationError {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        let error: &Error = match self {
+            TrainerInitializationError::ModelCompilationError( ref error ) => error,
+            TrainerInitializationError::InitializeWeightsError( ref error ) => error
+        };
+
+        write!( fmt, "failed to initialize a model for training: {}", error )
+    }
+}
+
+impl From< ModelCompilationError > for TrainerInitializationError {
+    fn from( value: ModelCompilationError ) -> Self {
+        TrainerInitializationError::ModelCompilationError( value )
+    }
+}
+
+impl From< InitializeWeightsError > for TrainerInitializationError {
+    fn from( value: InitializeWeightsError ) -> Self {
+        TrainerInitializationError::InitializeWeightsError( value )
+    }
+}
+
+impl Error for TrainerInitializationError {}
 
 pub struct Trainer< I, O >
     where I: DataSource + Send + Sync,
@@ -90,15 +129,17 @@ impl< I, O > Trainer< I, O >
     where I: DataSource + Send + Sync,
           O: DataSource + Send + Sync
 {
-    pub fn new( ctx: &Context, model: Model, data_set: DataSet< I, O > ) -> Result< Self, ModelCompilationError > {
+    pub fn new( ctx: &Context, model: Model, data_set: DataSet< I, O > ) -> Result< Self, TrainerInitializationError > {
         Self::new_with_opts( ctx, model, data_set, TrainingOpts::new() )
     }
 
     pub fn new_with_opts( ctx: &Context, model: Model, data_set: DataSet< I, O >, training_opts: TrainingOpts )
-        -> Result< Self, ModelCompilationError >
+        -> Result< Self, TrainerInitializationError >
     {
         let batch_size = training_opts.batch_size.unwrap_or( 32 );
-        let model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
+        let pretrain_weights = training_opts.pretrain_weights;
+        let mut model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
+        let mut rng = Pcg32::seed_from_u64( 123456 );
 
         let input_shape = model_instance.input_shape();
         assert_eq!(
@@ -118,6 +159,10 @@ impl< I, O > Trainer< I, O >
             data_set.output_shape()
         );
 
+        if pretrain_weights {
+            initialize_weights( ctx, &mut rng, &mut model_instance, data_set.input_data() )?;
+        }
+
         let length = data_set.len();
         let mut trainer = Trainer {
             model_instance,
@@ -126,7 +171,7 @@ impl< I, O > Trainer< I, O >
             position: 0,
             indexes: (0..length).collect(),
             epoch_counter: 0,
-            rng: Pcg32::seed_from_u64( 123456 )
+            rng
         };
 
         trainer.shuffle();

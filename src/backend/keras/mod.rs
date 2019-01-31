@@ -12,9 +12,17 @@ pub use self::{
         Context
     },
     model::{
-        ModelInstance
+        ModelCompilationError,
+        ModelInstance,
+        SetWeightsError
     },
     trainer::{
         Trainer
+    }
+};
+
+pub(crate) use self::{
+    model::{
+        ortho_weights
     }
 };

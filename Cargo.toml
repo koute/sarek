@@ -29,6 +29,7 @@ parking_lot = "0.7"
 decorum = "0.1"
 uuid = { version = "0.7", default-features = false, features = ["v4"] }
 rand = { version = "0.6", default-features = false, features = ["std"] }
+rand_pcg = "0.1"
 
 [dev-dependencies]
 env_logger = "0.6"
