@@ -59,6 +59,7 @@ fn training_opts( learning_rate: f32 ) -> TrainingOpts {
     optimizer.set_learning_rate( learning_rate );
     opts.set_batch_size( 1 );
     opts.set_optimizer( optimizer );
+    opts.disable_weight_pretraining();
     opts
 }
 

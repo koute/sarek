@@ -59,6 +59,7 @@ fn get_training_loss_classification( batch_size: usize, inputs: &[f32], expected
     optimizer.set_learning_rate( 1.0 );
     opts.set_batch_size( batch_size );
     opts.set_optimizer( optimizer );
+    opts.disable_weight_pretraining();
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
     let loss_1 = instance.train();
@@ -81,6 +82,7 @@ fn get_training_loss( batch_size: usize, inputs: &[f32], expected_outputs: &[f32
     optimizer.set_learning_rate( 1.0 );
     opts.set_batch_size( batch_size );
     opts.set_optimizer( optimizer );
+    opts.disable_weight_pretraining();
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
     let loss_1 = instance.train();
