@@ -391,6 +391,7 @@ impl ModelInstance {
                 output.extend( weights.as_slice() );
             }
 
+            assert_eq!( weight_count, output.len() );
             output
         });
 
