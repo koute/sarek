@@ -21,13 +21,13 @@ fn init_logger() {
     let _ = env_logger::try_init();
 }
 
-fn test_prediction< I >( layers: I, inputs: &[f32], expected_outputs: &[f32] )
+fn test_prediction< I >( layers: I, input_shape: Shape, inputs: &[f32], expected_outputs: &[f32] )
     where I: IntoLayerIter
 {
     let ctx = Context::new().unwrap();
-    let model = Model::new_sequential( inputs.len(), layers );
+    let model = Model::new_sequential( input_shape.clone(), layers );
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
-    let inputs = SliceSource::from( inputs.len().into(), inputs );
+    let inputs = SliceSource::from( input_shape, inputs );
     let output = instance.predict( &inputs );
     assert_f32_slice_eq(
         output.to_slice::< f32 >().unwrap(),
@@ -504,6 +504,7 @@ fn test_layer_activation_relu_prediction() {
 
     test_prediction(
         LayerActivation::new().set_activation( Activation::ReLU ),
+        INPUTS.len().into(),
         INPUTS,
         OUTPUTS
     );
@@ -545,6 +546,7 @@ fn test_layer_activation_leaky_relu_prediction() {
 
     test_prediction(
         LayerActivation::new().set_activation( Activation::LeakyReLU ),
+        INPUTS.len().into(),
         INPUTS,
         expected_outputs
     );
@@ -580,6 +582,7 @@ fn test_layer_activation_elu_prediction() {
 
     test_prediction(
         LayerActivation::new().set_activation( Activation::ELU ),
+        INPUTS.len().into(),
         INPUTS,
         expected_outputs
     );
@@ -615,6 +618,7 @@ fn test_layer_activation_tanh_prediction() {
 
     test_prediction(
         LayerActivation::new().set_activation( Activation::TanH ),
+        INPUTS.len().into(),
         INPUTS,
         expected_outputs
     );
@@ -650,6 +654,7 @@ fn test_layer_activation_logistic_prediction() {
 
     test_prediction(
         LayerActivation::new().set_activation( Activation::Logistic ),
+        INPUTS.len().into(),
         INPUTS,
         expected_outputs
     );
@@ -696,6 +701,7 @@ fn test_layer_softmax_prediction() {
 
     test_prediction(
         LayerSoftmax::new(),
+        inputs.len().into(),
         inputs,
         expected_outputs
     );
