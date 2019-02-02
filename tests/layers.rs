@@ -63,11 +63,11 @@ fn training_opts( learning_rate: f32 ) -> TrainingOpts {
     opts
 }
 
-fn test_backpropagation< L >( layer: L, inputs: &[f32], output_errors: &[f32], expected_input_errors: &[f32] )
+fn test_backpropagation< L >( layer: L, input_shape: Shape, inputs: &[f32], output_errors: &[f32], expected_input_errors: &[f32] )
     where L: Into< Layer >
 {
     let kind: Kind = Kind::OutputErrors( output_errors );
-    test_backpropagation_generic( layer, inputs, kind, expected_input_errors )
+    test_backpropagation_generic( layer, input_shape, inputs, kind, expected_input_errors )
 }
 
 enum Kind< 'a, T = f32 > where T: DataType {
@@ -75,7 +75,7 @@ enum Kind< 'a, T = f32 > where T: DataType {
     OutputErrors( &'a [f32] )
 }
 
-fn test_backpropagation_generic< L, T >( layer: L, inputs: &[f32], kind: Kind< T >, expected_input_errors: &[f32] )
+fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &[f32], kind: Kind< T >, expected_input_errors: &[f32] )
     where L: Into< Layer >, T: DataType
 {
     // Here we extract the given layer's backpropagated input errors
@@ -91,6 +91,7 @@ fn test_backpropagation_generic< L, T >( layer: L, inputs: &[f32], kind: Kind< T
     // This saves us the trouble of having to define APIs
     // to actually be able to extract the input errors directly.
     assert_eq!( inputs.len(), expected_input_errors.len() );
+    assert_eq!( inputs.len(), input_shape.product() );
 
     const LEARNING_RATE: f32 = 1.0;
 
@@ -109,6 +110,7 @@ fn test_backpropagation_generic< L, T >( layer: L, inputs: &[f32], kind: Kind< T
     let model = Model::new_sequential( network_input.len(), (
         LayerDense::new( inputs.len() )
             .set_name( "dense_layer" ),
+        LayerReshape::new( input_shape ),
         layer.into()
     ));
 
@@ -520,6 +522,7 @@ fn test_layer_activation_relu_backpropagation() {
 
     test_backpropagation(
         LayerActivation::new().set_activation( Activation::ReLU ),
+        inputs.len().into(),
         inputs,
         output_errors,
         expected_input_errors,
@@ -564,6 +567,7 @@ fn test_layer_activation_leaky_relu_backpropagation() {
     ];
     test_backpropagation(
         LayerActivation::new().set_activation( Activation::LeakyReLU ),
+        inputs.len().into(),
         inputs,
         output_errors,
         expected_input_errors,
@@ -600,6 +604,7 @@ fn test_layer_activation_elu_backpropagation() {
     ];
     test_backpropagation(
         LayerActivation::new().set_activation( Activation::ELU ),
+        inputs.len().into(),
         inputs,
         output_errors,
         expected_input_errors,
@@ -636,6 +641,7 @@ fn test_layer_activation_tanh_backpropagation() {
     ];
     test_backpropagation(
         LayerActivation::new().set_activation( Activation::TanH ),
+        inputs.len().into(),
         inputs,
         output_errors,
         expected_input_errors,
@@ -674,6 +680,7 @@ fn test_layer_activation_logistic_backpropagation() {
     ];
     test_backpropagation(
         LayerActivation::new().set_activation( Activation::Logistic ),
+        inputs.len().into(),
         inputs,
         output_errors,
         expected_input_errors,
@@ -743,6 +750,7 @@ fn test_layer_softmax_backpropagation() {
 
     test_backpropagation(
         LayerSoftmax::new(),
+        inputs.len().into(),
         inputs,
         output_errors,
         expected_input_errors,
@@ -869,6 +877,7 @@ fn test_layer_into_category_backpropagation( inputs: &[f32], expected_output: u3
 
     test_backpropagation_generic(
         LayerIntoCategory::new(),
+        inputs.len().into(),
         inputs,
         Kind::ExpectedOutputs( &[ expected_output ] ),
         &expected_input_errors
