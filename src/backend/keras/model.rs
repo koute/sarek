@@ -377,9 +377,9 @@ impl ModelInstance {
         };
 
         let weight_count = layer.weight_count( &input_shape );
+        let layer_name_s = layer_name.to_string();
         let output = Context::gil( move |py| {
-            let layer_name = layer_name.to_string();
-            let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name,), None ).unwrap();
+            let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name_s,), None ).unwrap();
             let weights_list = layer.getattr( py, "get_weights" ).unwrap().call( py, (), None ).map_err( |err| py_err( py, err ) ).unwrap();
             let weights_list: &PyList = py.checked_cast_as( weights_list ).unwrap();
             let mut output: Vec< f32 > = Vec::with_capacity( weight_count );
@@ -391,9 +391,17 @@ impl ModelInstance {
                 output.extend( weights.as_slice() );
             }
 
-            assert_eq!( weight_count, output.len() );
             output
         });
+
+        assert_eq!(
+            weight_count,
+            output.len(),
+            "Internal error: expected the number of weights for layer {} to be {}; instead it is {}",
+            layer_name,
+            weight_count,
+            output.len()
+        );
 
         SliceSource::from( Shape::new_1d( weight_count ), output )
     }
