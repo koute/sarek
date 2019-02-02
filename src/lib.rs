@@ -18,6 +18,7 @@ pub mod layers {
                 LayerDense,
                 LayerDropout,
                 LayerIntoCategory,
+                LayerReshape,
                 LayerSoftmax
             }
         }

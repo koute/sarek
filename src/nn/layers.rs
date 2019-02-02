@@ -181,6 +181,41 @@ impl LayerPrototype for LayerIntoCategory {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LayerReshape {
+    pub(crate) name: Name,
+    pub(crate) shape: Shape
+}
+
+impl LayerReshape {
+    pub fn new( shape: Shape ) -> Self {
+        Self {
+            name: Name::new_unique(),
+            shape
+        }
+    }
+}
+
+impl LayerPrototype for LayerReshape {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+
+    fn output_shape( &self, input_shape: &Shape ) -> Shape {
+        assert_eq!( input_shape.product(), self.shape.product() );
+        self.shape.clone()
+    }
+
+    fn weight_count( &self, _: &Shape ) -> usize {
+        0
+    }
+}
+
 /// The softmax layer normalizes its inputs so that they sum to `1`.
 ///
 /// More precisely it interprets the inputs as unnormalized log probabilities
@@ -225,6 +260,7 @@ pub enum Layer {
     Dense( LayerDense ),
     Dropout( LayerDropout ),
     IntoCategory( LayerIntoCategory ),
+    Reshape( LayerReshape ),
     Softmax( LayerSoftmax )
 }
 
@@ -292,6 +328,7 @@ layer_boilerplate!(
     Layer::Dense( LayerDense )
     Layer::Dropout( LayerDropout )
     Layer::IntoCategory( LayerIntoCategory )
+    Layer::Reshape( LayerReshape )
     Layer::Softmax( LayerSoftmax )
 );
 

@@ -750,6 +750,25 @@ fn test_layer_softmax_backpropagation() {
 }
 
 #[test]
+fn test_layer_reshape() {
+    let target_shape = Shape::new_2d( 2, 2 );
+    let layer = LayerReshape::new( target_shape.clone() );
+    let input_shape = Shape::new_1d( 4 );
+    let inputs = &[ 0.1, 0.2, 0.3, 0.4 ];
+
+    let ctx = Context::new().unwrap();
+    let model = Model::new_sequential( input_shape.clone(), layer );
+    let mut instance = ModelInstance::new( &ctx, model ).unwrap();
+    let input_source = SliceSource::from( input_shape, inputs );
+    let output = instance.predict( &input_source );
+    assert_eq!( output.shape(), target_shape );
+    assert_f32_slice_eq(
+        output.to_slice::< f32 >().unwrap(),
+        inputs
+    );
+}
+
+#[test]
 fn test_layer_into_category_prediction_single_input() {
     init_logger();
 

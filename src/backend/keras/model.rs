@@ -68,6 +68,7 @@ use {
                 LayerDense,
                 LayerDropout,
                 LayerPrototype,
+                LayerReshape,
                 LayerSoftmax
             },
             loss::{
@@ -228,6 +229,14 @@ impl ModelInstance {
 
                         output_kind = OutputKind::SparseCategory;
                     },
+                    Layer::Reshape( LayerReshape { name, shape } ) => {
+                        let target_shape = PyTuple::new( py, shape );
+                        kwargs.set_item( "target_shape", target_shape ).unwrap();
+                        kwargs.set_item( "name", name.to_string() ).unwrap();
+                        kwargs.set_item( "trainable", is_trainable ).unwrap();
+                        let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                        layers.push( layer );
+                    },
                     Layer::Softmax( LayerSoftmax { name } ) => {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
@@ -358,6 +367,7 @@ impl ModelInstance {
             Layer::Activation( _ ) |
             Layer::Dropout( _ ) |
             Layer::IntoCategory( _ ) |
+            Layer::Reshape( _ ) |
             Layer::Softmax( _ )
                 => unreachable!()
         };
