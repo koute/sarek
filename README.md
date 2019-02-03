@@ -30,9 +30,9 @@ Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if poss
             * [X] LeakyReLU
             * [X] ELU
          * [X] Softmax
-         * [ ] Batch normalization
-         * [ ] Convolutional
-         * [ ] Pooling
+         * [X] Convolutional
+         * [X] Pooling
+         * [ ] Batch normalization (maybe)
          * [ ] RNN (maybe)
    * [X] Add a MNIST example
    * [X] Add LSUV weight initialization
