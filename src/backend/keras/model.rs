@@ -273,6 +273,34 @@ impl ModelInstance {
 
                         output_kind = OutputKind::SparseCategory;
                     },
+                    Layer::MaxPooling( layer ) => {
+                        if input_shape.dimension_count() == 2 {
+                            let target_shape = PyTuple::new( py, &input_shape.append( 1 ) );
+                            kwargs.set_item( "target_shape", target_shape ).unwrap();
+                            kwargs.set_item( "trainable", is_trainable ).unwrap();
+                            let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                            layers.push( layer );
+
+                            kwargs = PyDict::new( py );
+                        }
+
+                        kwargs.set_item( "pool_size", (layer.pool_size.1, layer.pool_size.0) ).unwrap();
+                        kwargs.set_item( "name", layer.name.to_string() ).unwrap();
+                        kwargs.set_item( "trainable", is_trainable ).unwrap();
+                        // Padding is explained here:
+                        //   https://stackoverflow.com/questions/37674306
+                        kwargs.set_item( "padding", "same" ).unwrap();
+                        let layer_obj = layers_ns.getattr( "MaxPool2D" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                        layers.push( layer_obj );
+                        {
+                            let target_shape = layer.output_shape( &input_shape );
+                            let target_shape = PyTuple::new( py, &target_shape );
+                            kwargs = PyDict::new( py );
+                            kwargs.set_item( "target_shape", target_shape ).unwrap();
+                            let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
+                            layers.push( layer_obj );
+                        }
+                    },
                     Layer::Reshape( LayerReshape { name, shape } ) => {
                         let target_shape = PyTuple::new( py, shape );
                         kwargs.set_item( "target_shape", target_shape ).unwrap();
@@ -437,6 +465,7 @@ impl ModelInstance {
             Layer::Activation( _ ) |
             Layer::Dropout( _ ) |
             Layer::IntoCategory( _ ) |
+            Layer::MaxPooling( _ ) |
             Layer::Reshape( _ ) |
             Layer::Softmax( _ )
                 => unreachable!()

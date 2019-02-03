@@ -1704,3 +1704,145 @@ fn test_layer_convolution_training_input2x2_kernel2x1_filter2x() {
         UPDATED_WEIGHTS
     );
 }
+
+#[test]
+fn test_layer_max_pooling_prediction_input2x2_pool2x2() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        1.22, 1.33,
+        1.44, 1.55
+    ];
+
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        1.55
+    ];
+
+    test_prediction(
+        LayerMaxPooling::new( (2, 2) ),
+        (2, 2).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (1, 1, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_max_pooling_prediction_input2x2x2_pool2x2() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        1.10, 1.40,
+        2.00, 1.50,
+        1.20, 4.00,
+        1.30, 1.60
+    ];
+
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        2.00,
+        4.00
+    ];
+
+    test_prediction(
+        LayerMaxPooling::new( (2, 2) ),
+        (2, 2, 2).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (1, 1, 2).into()
+    );
+}
+
+#[test]
+fn test_layer_max_pooling_prediction_input2x2_pool1x2() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        1.10, 1.50,
+        2.00, 1.40
+    ];
+
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        2.00, 1.50
+    ];
+
+    test_prediction(
+        LayerMaxPooling::new( (1, 2) ),
+        (2, 2).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (2, 1, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_max_pooling_prediction_input2x2_pool2x1() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        1.10, 1.50,
+        2.00, 1.40
+    ];
+
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        1.50, 2.00
+    ];
+
+    test_prediction(
+        LayerMaxPooling::new( (2, 1) ),
+        (2, 2).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (1, 2, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_max_pooling_backpropagation_input2x2_pool2x1() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        1.10, 1.50,
+        2.00, 1.40
+    ];
+
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        1.11, 2.22
+    ];
+
+    const EXPECTED_INPUT_ERRORS: &'static [f32] = &[
+        0.00, OUTPUT_ERRORS[ 0 ],
+        OUTPUT_ERRORS[ 1 ], 0.00
+    ];
+
+    test_backpropagation(
+        LayerMaxPooling::new( (2, 1) ),
+        (2, 2).into(),
+        INPUTS,
+        OUTPUT_ERRORS,
+        EXPECTED_INPUT_ERRORS
+    );
+}
+
+#[test]
+fn test_layer_max_pooling_prediction_input3x3_pool2x2() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        3.00, 5.00, 7.00,
+        4.00, 6.00, 8.00,
+        9.00, 10.00, 11.00
+    ];
+
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        6.00, 8.00,
+        10.00, 11.00
+    ];
+
+    test_prediction(
+        LayerMaxPooling::new( (2, 2) ),
+        (3, 3).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (2, 2, 1).into()
+    );
+}

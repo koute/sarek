@@ -264,6 +264,48 @@ impl LayerPrototype for LayerIntoCategory {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LayerMaxPooling {
+    pub(crate) name: Name,
+    pub(crate) pool_size: (usize, usize)
+}
+
+impl LayerMaxPooling {
+    pub fn new( pool_size: (usize, usize) ) -> Self {
+        Self {
+            name: Name::new_unique(),
+            pool_size
+        }
+    }
+}
+
+impl LayerPrototype for LayerMaxPooling {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+
+    fn output_shape( &self, input_shape: &Shape ) -> Shape {
+        let input_dimensions = input_shape.dimension_count();
+        assert!( input_dimensions == 2 || input_dimensions == 3 );
+        assert!( self.pool_size.0 <= input_shape.x() );
+        assert!( self.pool_size.1 <= input_shape.y() );
+        Shape::new_3d(
+            (input_shape.x() as f32 / self.pool_size.0 as f32).ceil() as usize,
+            (input_shape.y() as f32 / self.pool_size.1 as f32).ceil() as usize,
+            input_shape.z()
+        )
+    }
+
+    fn weight_count( &self, _: &Shape ) -> usize {
+        0
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LayerReshape {
     pub(crate) name: Name,
     pub(crate) shape: Shape
@@ -343,6 +385,7 @@ pub enum Layer {
     Dense( LayerDense ),
     Dropout( LayerDropout ),
     IntoCategory( LayerIntoCategory ),
+    MaxPooling( LayerMaxPooling ),
     Reshape( LayerReshape ),
     Softmax( LayerSoftmax )
 }
@@ -426,6 +469,7 @@ layer_boilerplate!(
     Layer::Dense( LayerDense )
     Layer::Dropout( LayerDropout )
     Layer::IntoCategory( LayerIntoCategory )
+    Layer::MaxPooling( LayerMaxPooling )
     Layer::Reshape( LayerReshape )
     Layer::Softmax( LayerSoftmax )
 );
