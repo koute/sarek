@@ -21,7 +21,7 @@ fn init_logger() {
     let _ = env_logger::try_init();
 }
 
-fn test_prediction< I >( layers: I, input_shape: Shape, inputs: &[f32], expected_outputs: &[f32] )
+fn test_prediction< I >( layers: I, input_shape: Shape, inputs: &[f32], expected_outputs: &[f32], expected_output_shape: Shape )
     where I: IntoLayerIter
 {
     let ctx = Context::new().unwrap();
@@ -29,13 +29,14 @@ fn test_prediction< I >( layers: I, input_shape: Shape, inputs: &[f32], expected
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
     let inputs = SliceSource::from( input_shape, inputs );
     let output = instance.predict( &inputs );
+    assert_eq!( output.shape(), expected_output_shape );
     assert_f32_slice_eq(
         output.to_slice::< f32 >().unwrap(),
         expected_outputs
     );
 }
 
-fn test_prediction_exact< I, T >( layers: I, inputs: &[f32], input_count: usize, expected_outputs: &[T] )
+fn test_prediction_exact< I, T >( layers: I, inputs: &[f32], input_count: usize, expected_outputs: &[T], expected_output_shape: Shape )
     where I: IntoLayerIter,
           T: DataType + PartialEq + fmt::Debug
 {
@@ -47,6 +48,7 @@ fn test_prediction_exact< I, T >( layers: I, inputs: &[f32], input_count: usize,
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
     let inputs = SliceSource::from( input_shape, inputs );
     let output = instance.predict( &inputs );
+    assert_eq!( output.shape(), expected_output_shape );
     assert_eq!(
         output.to_slice::< T >().unwrap(),
         expected_outputs
@@ -508,7 +510,8 @@ fn test_layer_activation_relu_prediction() {
         LayerActivation::new().set_activation( Activation::ReLU ),
         INPUTS.len().into(),
         INPUTS,
-        OUTPUTS
+        OUTPUTS,
+        OUTPUTS.len().into()
     );
 }
 
@@ -551,7 +554,8 @@ fn test_layer_activation_leaky_relu_prediction() {
         LayerActivation::new().set_activation( Activation::LeakyReLU ),
         INPUTS.len().into(),
         INPUTS,
-        expected_outputs
+        expected_outputs,
+        expected_outputs.len().into()
     );
 }
 
@@ -588,7 +592,8 @@ fn test_layer_activation_elu_prediction() {
         LayerActivation::new().set_activation( Activation::ELU ),
         INPUTS.len().into(),
         INPUTS,
-        expected_outputs
+        expected_outputs,
+        expected_outputs.len().into()
     );
 }
 
@@ -625,7 +630,8 @@ fn test_layer_activation_tanh_prediction() {
         LayerActivation::new().set_activation( Activation::TanH ),
         INPUTS.len().into(),
         INPUTS,
-        expected_outputs
+        expected_outputs,
+        expected_outputs.len().into()
     );
 }
 
@@ -662,7 +668,8 @@ fn test_layer_activation_logistic_prediction() {
         LayerActivation::new().set_activation( Activation::Logistic ),
         INPUTS.len().into(),
         INPUTS,
-        expected_outputs
+        expected_outputs,
+        expected_outputs.len().into()
     );
 }
 
@@ -710,7 +717,8 @@ fn test_layer_softmax_prediction() {
         LayerSoftmax::new(),
         inputs.len().into(),
         inputs,
-        expected_outputs
+        expected_outputs,
+        expected_outputs.len().into()
     );
 }
 
@@ -788,7 +796,8 @@ fn test_layer_into_category_prediction_single_input() {
         LayerIntoCategory::new(),
         inputs,
         input_count,
-        expected_outputs
+        expected_outputs,
+        1.into()
     );
 }
 
@@ -807,7 +816,8 @@ fn test_layer_into_category_prediction_multiple_inputs() {
         LayerIntoCategory::new(),
         inputs,
         input_count,
-        expected_outputs
+        expected_outputs,
+        1.into()
     );
 }
 
