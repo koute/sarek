@@ -323,6 +323,20 @@ macro_rules! layer_boilerplate {
     }
 }
 
+impl< 'a > From< &'a Layer > for Layer {
+    #[inline]
+    fn from( layer: &'a Layer ) -> Self {
+        layer.clone()
+    }
+}
+
+impl< 'a > From< &'a mut Layer > for Layer {
+    #[inline]
+    fn from( layer: &'a mut Layer ) -> Self {
+        layer.clone()
+    }
+}
+
 layer_boilerplate!(
     Layer::Activation( LayerActivation )
     Layer::Dense( LayerDense )
