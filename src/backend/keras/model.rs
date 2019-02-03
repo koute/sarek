@@ -27,6 +27,7 @@ use {
                     TypedPyArray
                 },
                 py_utils::{
+                    PyResultExt,
                     py_err
                 }
             }
@@ -65,6 +66,7 @@ use {
             layers::{
                 Layer,
                 LayerActivation,
+                LayerConvolution,
                 LayerDense,
                 LayerDropout,
                 LayerPrototype,
@@ -152,7 +154,7 @@ impl ModelInstance {
         Self::compile( ctx, model, None )
     }
 
-    pub(crate) fn compile( ctx: &Context, model: Model, training_opts: Option< TrainingOpts > ) -> Result< ModelInstance, ModelCompilationError > {
+    pub(crate) fn compile( ctx: &Context, mut model: Model, training_opts: Option< TrainingOpts > ) -> Result< ModelInstance, ModelCompilationError > {
         Context::gil( move |py| {
             let tf_ns = py.import( "tensorflow" ).unwrap();
             let keras_ns = tf_ns.getattr( "keras" ).unwrap();
@@ -162,18 +164,20 @@ impl ModelInstance {
             let is_trainable = training_opts.is_some();
             let mut output_kind = OutputKind::Regression;
             let mut is_first = true;
+            let mut input_shape = model.input_shape();
 
+            let model_layer_count = model.layers.len();
             let mut layers = Vec::with_capacity( model.layers.len() );
-            for (layer_index, layer) in model.layers.iter().enumerate() {
+            for (layer_index, layer) in model.layers.iter_mut().enumerate() {
                 let mut kwargs = PyDict::new( py );
 
                 if is_first {
-                    let shape = PyTuple::new( py, &model.input_shape() );
+                    let shape = PyTuple::new( py, &input_shape );
                     kwargs.set_item( "input_shape", shape ).unwrap();
                     is_first = false;
                 }
 
-                let is_last = layer_index + 1 == model.layers.len();
+                let is_last = layer_index + 1 == model_layer_count;
 
                 match layer {
                     Layer::Activation( LayerActivation { name, activation } ) => {
@@ -195,6 +199,46 @@ impl ModelInstance {
                                 layers_ns.getattr( "Activation" ).unwrap().call( ("tanh",), Some( kwargs ) ).unwrap()
                         };
                         layers.push( layer );
+                    },
+                    Layer::Convolution( layer ) => {
+                        if input_shape.dimension_count() == 2 {
+                            let target_shape = PyTuple::new( py, &input_shape.append( 1 ) );
+                            kwargs.set_item( "target_shape", target_shape ).unwrap();
+                            kwargs.set_item( "trainable", is_trainable ).unwrap();
+                            let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                            layers.push( layer );
+
+                            kwargs = PyDict::new( py );
+                        }
+
+                        kwargs.set_item( "name", layer.name.to_string() ).unwrap();
+                        kwargs.set_item( "trainable", is_trainable ).unwrap();
+                        kwargs.set_item( "filters", layer.filter_count ).unwrap();
+                        kwargs.set_item( "kernel_size", (layer.kernel_size.1, layer.kernel_size.0) ).unwrap();
+
+                        if let Some( weights ) = layer.weights.take() {
+                            let (bias_array, weight_array) =
+                                Self::weights_into_arrays_for_convolutional_layer( py, &input_shape, &layer, &weights );
+
+                            let initializers_ns = keras_ns.getattr( "initializers" ).unwrap();
+                            let constant = initializers_ns.getattr( "constant" ).unwrap();
+                            let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
+                            let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
+
+                            kwargs.set_item( "bias_initializer", bias_array ).unwrap();
+                            kwargs.set_item( "kernel_initializer", weight_array ).unwrap();
+                        }
+
+                        let layer_obj = layers_ns.getattr( "Conv2D" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
+                        layers.push( layer_obj );
+                        {
+                            let target_shape = layer.output_shape( &input_shape );
+                            let target_shape = PyTuple::new( py, &target_shape );
+                            kwargs = PyDict::new( py );
+                            kwargs.set_item( "target_shape", target_shape ).unwrap();
+                            let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
+                            layers.push( layer_obj );
+                        }
                     },
                     Layer::Dense( LayerDense { name, size } ) => {
                         {
@@ -220,7 +264,7 @@ impl ModelInstance {
                     Layer::IntoCategory( _ ) => {
                         assert!( is_last, "The `LayerIntoCategory` is only supported as the last layer of the network" );
                         if layers.is_empty() {
-                            let target_shape = PyTuple::new( py, &model.input_shape() );
+                            let target_shape = PyTuple::new( py, &input_shape );
                             kwargs.set_item( "target_shape", target_shape ).unwrap();
 
                             let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
@@ -244,6 +288,8 @@ impl ModelInstance {
                         layers.push( layer );
                     }
                 }
+
+                input_shape = layer.output_shape( &input_shape );
             }
 
             if layers.is_empty() {
@@ -350,8 +396,32 @@ impl ModelInstance {
         Ok(())
     }
 
+    fn weights_into_arrays_for_convolutional_layer(
+        py: Python,
+        input_shape: &Shape,
+        layer: &LayerConvolution,
+        weights: &[f32]
+    ) -> (TypedPyArray< f32 >, TypedPyArray< f32 >) {
+        let bias_count = layer.filter_count;
+        let weight_shape = Shape::new_4d( layer.kernel_size.1, layer.kernel_size.0, input_shape.z(), layer.filter_count );
+
+        let mut weight_array = TypedPyArray::< f32 >::new( py, weight_shape );
+        let mut bias_array = TypedPyArray::< f32 >::new( py, Shape::new_1d( bias_count ) );
+        weight_array.as_slice_mut().copy_from_slice( &weights[ bias_count.. ] );
+        bias_array.as_slice_mut().copy_from_slice( &weights[ ..bias_count ] );
+
+        (bias_array, weight_array)
+    }
+
     fn set_weights_for_layer( &self, py: Python, input_shape: &Shape, layer: &Layer, weights: &[f32] ) {
         let weights = match layer {
+            Layer::Convolution( layer ) => {
+                let (bias_array, weight_array) = Self::weights_into_arrays_for_convolutional_layer( py, input_shape, layer, weights );
+                let list = PyList::empty( py );
+                list.append( weight_array ).unwrap();
+                list.append( bias_array ).unwrap();
+                list
+            },
             Layer::Dense( layer ) => {
                 let bias_count = layer.size;
 

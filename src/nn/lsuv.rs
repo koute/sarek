@@ -196,6 +196,15 @@ pub fn initialize_weights< I >(
                 model_instance.set_weights( layer.name(), &weights )?;
                 input_buffer = output_buffer;
             },
+            Layer::Convolution( layer ) => {
+                // TODO: Initialize the weights here.
+                use crate::core::array::ToArrayRef;
+                info!( "Layer #{}: using defaults", layer_index + 1 );
+                let weights = model_instance.get_weights( layer.name() );
+                input_buffer = predict_layer( ctx, &layer, input_buffer, weights.to_slice::< f32 >().unwrap() )?;
+                input_shape = next_input_shape;
+                continue;
+            },
             _ => unreachable!()
         }
 

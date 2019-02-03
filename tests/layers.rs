@@ -187,6 +187,39 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
     );
 }
 
+fn test_training< I >(
+    layer: I,
+    input_shape: Shape,
+    inputs: &[f32],
+    weights: &[f32],
+    expected_outputs: &[f32],
+    learning_rate: f32,
+    expected_new_weights: &[f32]
+)
+    where I: Into< Layer >
+{
+    let layer = layer.into();
+    let layer_name = layer.name().clone();
+    let ctx = Context::new().unwrap();
+    let model = Model::new_sequential( input_shape.clone(), layer );
+
+    let inputs = SliceSource::from( input_shape, inputs );
+    let output_shape = model.output_shape();
+
+    let expected_outputs = SliceSource::from( output_shape, expected_outputs );
+    let data_set = DataSet::new( &inputs, expected_outputs );
+
+    let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( learning_rate ) ).unwrap();
+    instance.set_weights( &layer_name, &weights ).unwrap();
+    instance.train();
+
+    let new_weights = instance.get_weights( &layer_name );
+    assert_f32_slice_eq(
+        new_weights.to_slice::< f32 >().unwrap(),
+        expected_new_weights
+    );
+}
+
 #[test]
 fn test_layer_dense_prediction() {
     init_logger();
@@ -928,4 +961,746 @@ fn test_layer_into_category_backpropagation_correct_output_normalized() {
         &[ 0.3, 0.5, 0.2 ],
         1
     )
+}
+
+#[test]
+fn test_layer_convolution_prediction_input1x1_kernel1x1_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        1.0
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] + INPUTS[ 0 ] * WEIGHTS[ 1 + 0 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (1, 1).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 1, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input1x1x2_kernel1x1_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33,
+        1.66
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+
+        1.0,
+        3.0
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 1 + 1 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (1, 1, 2).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 1, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input1x1_kernel1x1_filter2x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        0.33,
+
+        1.0,
+        2.0
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] + INPUTS[ 0 ] * WEIGHTS[ 2 + 0 ],
+        WEIGHTS[ 1 ] + INPUTS[ 0 ] * WEIGHTS[ 2 + 1 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (1, 1).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 1, 2).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input1x1x2_kernel1x1_filter2x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33,
+        1.66
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        0.33,
+
+        1.0,
+        3.0,
+        0.25,
+        0.4
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 2 + 0 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 2 + 2 ],
+        WEIGHTS[ 1 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 2 + 1 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 2 + 3 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (1, 1, 2).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 1, 2).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input2x2_kernel1x1_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33, 1.5,
+        0.10, 0.25
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        1.0
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] + INPUTS[ 0 ] * WEIGHTS[ 1 + 0 ],
+        WEIGHTS[ 0 ] + INPUTS[ 1 ] * WEIGHTS[ 1 + 0 ],
+        WEIGHTS[ 0 ] + INPUTS[ 2 ] * WEIGHTS[ 1 + 0 ],
+        WEIGHTS[ 0 ] + INPUTS[ 3 ] * WEIGHTS[ 1 + 0 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (2, 2).into(),
+        INPUTS,
+        expected_outputs,
+        (2, 2, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input2x2_kernel2x1_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33, 1.5,
+        0.10, 0.25
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        1.0, 1.33
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 1 + 1 ],
+        WEIGHTS[ 0 ] +
+            INPUTS[ 2 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 3 ] * WEIGHTS[ 1 + 1 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 1, (2, 1) ).set_weights( WEIGHTS.into() ),
+        (2, 2).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 2, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input2x2_kernel2x2_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33, 1.5,
+        0.10, 0.25
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        1.0, 1.1,
+        1.2, 1.3
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 1 + 1 ] +
+            INPUTS[ 2 ] * WEIGHTS[ 1 + 2 ] +
+            INPUTS[ 3 ] * WEIGHTS[ 1 + 3 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 1, (2, 2) ).set_weights( WEIGHTS.into() ),
+        (2, 2).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 1, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input3x3_kernel2x2_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.5, 1.5, 0.25,
+        1.0, 2.0, 5.0,
+        3.0, 7.0, 3.5
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        3.0,
+        0.1, 0.2,
+        0.3, 0.4
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 * 3 + 0 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 0 * 3 + 1 ] * WEIGHTS[ 1 + 1 ] +
+            INPUTS[ 1 * 3 + 0 ] * WEIGHTS[ 1 + 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 1 + 3 ],
+
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 * 3 + 1 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 0 * 3 + 2 ] * WEIGHTS[ 1 + 1 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 1 + 2 ] +
+            INPUTS[ 1 * 3 + 2 ] * WEIGHTS[ 1 + 3 ],
+
+        WEIGHTS[ 0 ] +
+            INPUTS[ 1 * 3 + 0 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 1 + 1 ] +
+            INPUTS[ 2 * 3 + 0 ] * WEIGHTS[ 1 + 2 ] +
+            INPUTS[ 2 * 3 + 1 ] * WEIGHTS[ 1 + 3 ],
+
+        WEIGHTS[ 0 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 1 + 0 ] +
+            INPUTS[ 1 * 3 + 2 ] * WEIGHTS[ 1 + 1 ] +
+            INPUTS[ 2 * 3 + 1 ] * WEIGHTS[ 1 + 2 ] +
+            INPUTS[ 2 * 3 + 2 ] * WEIGHTS[ 1 + 3 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 1, (2, 2) ).set_weights( WEIGHTS.into() ),
+        (3, 3).into(),
+        INPUTS,
+        expected_outputs,
+        (2, 2, 1).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_prediction_input3x3_kernel2x2_filter2x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.5, 1.5, 0.25,
+        1.0, 2.0, 5.0,
+        3.0, 7.0, 3.5
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        3.0,
+        2.2,
+
+        0.1, 0.2,
+        0.3, 0.4,
+        0.5, 0.6,
+        0.7, 0.8
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 * 3 + 0 ] * WEIGHTS[ 2 + 0 * 2 ] +
+            INPUTS[ 0 * 3 + 1 ] * WEIGHTS[ 2 + 1 * 2 ] +
+            INPUTS[ 1 * 3 + 0 ] * WEIGHTS[ 2 + 2 * 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 2 + 3 * 2 ],
+
+        WEIGHTS[ 1 ] +
+            INPUTS[ 0 * 3 + 0 ] * WEIGHTS[ 3 + 0 * 2 ] +
+            INPUTS[ 0 * 3 + 1 ] * WEIGHTS[ 3 + 1 * 2 ] +
+            INPUTS[ 1 * 3 + 0 ] * WEIGHTS[ 3 + 2 * 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 3 + 3 * 2 ],
+
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 * 3 + 1 ] * WEIGHTS[ 2 + 0 * 2 ] +
+            INPUTS[ 0 * 3 + 2 ] * WEIGHTS[ 2 + 1 * 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 2 + 2 * 2 ] +
+            INPUTS[ 1 * 3 + 2 ] * WEIGHTS[ 2 + 3 * 2 ],
+
+        WEIGHTS[ 1 ] +
+            INPUTS[ 0 * 3 + 1 ] * WEIGHTS[ 3 + 0 * 2 ] +
+            INPUTS[ 0 * 3 + 2 ] * WEIGHTS[ 3 + 1 * 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 3 + 2 * 2 ] +
+            INPUTS[ 1 * 3 + 2 ] * WEIGHTS[ 3 + 3 * 2 ],
+
+        WEIGHTS[ 0 ] +
+            INPUTS[ 1 * 3 + 0 ] * WEIGHTS[ 2 + 0 * 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 2 + 1 * 2 ] +
+            INPUTS[ 2 * 3 + 0 ] * WEIGHTS[ 2 + 2 * 2 ] +
+            INPUTS[ 2 * 3 + 1 ] * WEIGHTS[ 2 + 3 * 2 ],
+
+        WEIGHTS[ 1 ] +
+            INPUTS[ 1 * 3 + 0 ] * WEIGHTS[ 3 + 0 * 2 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 3 + 1 * 2 ] +
+            INPUTS[ 2 * 3 + 0 ] * WEIGHTS[ 3 + 2 * 2 ] +
+            INPUTS[ 2 * 3 + 1 ] * WEIGHTS[ 3 + 3 * 2 ],
+
+        WEIGHTS[ 0 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 2 + 0 * 2 ] +
+            INPUTS[ 1 * 3 + 2 ] * WEIGHTS[ 2 + 1 * 2 ] +
+            INPUTS[ 2 * 3 + 1 ] * WEIGHTS[ 2 + 2 * 2 ] +
+            INPUTS[ 2 * 3 + 2 ] * WEIGHTS[ 2 + 3 * 2 ],
+
+        WEIGHTS[ 1 ] +
+            INPUTS[ 1 * 3 + 1 ] * WEIGHTS[ 3 + 0 * 2 ] +
+            INPUTS[ 1 * 3 + 2 ] * WEIGHTS[ 3 + 1 * 2 ] +
+            INPUTS[ 2 * 3 + 1 ] * WEIGHTS[ 3 + 2 * 2 ] +
+            INPUTS[ 2 * 3 + 2 ] * WEIGHTS[ 3 + 3 * 2 ]
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 2, (2, 2) ).set_weights( WEIGHTS.into() ),
+        (3, 3).into(),
+        INPUTS,
+        expected_outputs,
+        (2, 2, 2).into()
+    );
+}
+
+#[test]
+fn test_layer_convolution_backpropagation_input1x1_kernel1x1_filter1x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        1.0
+    ];
+
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        1.11
+    ];
+
+    let expected_input_errors = &[
+        WEIGHTS[ 1 ] * OUTPUT_ERRORS[ 0 ]
+    ];
+
+    test_backpropagation(
+        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (1, 1).into(),
+        INPUTS,
+        OUTPUT_ERRORS,
+        expected_input_errors,
+    );
+}
+
+#[test]
+fn test_layer_convolution_backpropagation_input1x1_kernel1x1_filter2x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.33
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        0.5,
+        0.33,
+
+        1.0,
+        2.0
+    ];
+
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        1.11,
+        1.22
+    ];
+
+    let expected_input_errors = &[
+        WEIGHTS[ 2 ] * OUTPUT_ERRORS[ 0 ] +
+        WEIGHTS[ 3 ] * OUTPUT_ERRORS[ 1 ]
+    ];
+
+    test_backpropagation(
+        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        (1, 1).into(),
+        INPUTS,
+        OUTPUT_ERRORS,
+        expected_input_errors,
+    );
+}
+
+#[test]
+fn test_layer_convolution_backpropagation_input3x3_kernel2x2_filter2x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        -0.5, 1.5, 0.25,
+        1.0, 2.0, 5.0,
+        3.0, 7.0, 3.5
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        3.0,
+        2.2,
+
+        0.1, 0.2,
+        0.3, 0.4,
+        0.5, 0.6,
+        0.7, 0.8
+    ];
+
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        1.1, 1.2,
+        1.3, 1.4,
+        1.5, 1.6,
+        1.7, 1.8
+    ];
+
+    let expected_input_errors = &[
+        WEIGHTS[ 2 + 0 * 2 ] * OUTPUT_ERRORS[ 0 ] +
+        WEIGHTS[ 3 + 0 * 2 ] * OUTPUT_ERRORS[ 1 ],
+
+        WEIGHTS[ 2 + 1 * 2 ] * OUTPUT_ERRORS[ 0 ] +
+        WEIGHTS[ 3 + 1 * 2 ] * OUTPUT_ERRORS[ 1 ] +
+        WEIGHTS[ 2 + 0 * 2 ] * OUTPUT_ERRORS[ 2 ] +
+        WEIGHTS[ 3 + 0 * 2 ] * OUTPUT_ERRORS[ 3 ],
+
+        WEIGHTS[ 2 + 1 * 2 ] * OUTPUT_ERRORS[ 2 ] +
+        WEIGHTS[ 3 + 1 * 2 ] * OUTPUT_ERRORS[ 3 ],
+
+        WEIGHTS[ 2 + 2 * 2 ] * OUTPUT_ERRORS[ 0 ] +
+        WEIGHTS[ 3 + 2 * 2 ] * OUTPUT_ERRORS[ 1 ] +
+        WEIGHTS[ 2 + 0 * 2 ] * OUTPUT_ERRORS[ 4 ] +
+        WEIGHTS[ 3 + 0 * 2 ] * OUTPUT_ERRORS[ 5 ],
+
+        WEIGHTS[ 2 + 3 * 2 ] * OUTPUT_ERRORS[ 0 ] +
+        WEIGHTS[ 3 + 3 * 2 ] * OUTPUT_ERRORS[ 1 ] +
+        WEIGHTS[ 2 + 2 * 2 ] * OUTPUT_ERRORS[ 2 ] +
+        WEIGHTS[ 3 + 2 * 2 ] * OUTPUT_ERRORS[ 3 ] +
+        WEIGHTS[ 2 + 1 * 2 ] * OUTPUT_ERRORS[ 4 ] +
+        WEIGHTS[ 3 + 1 * 2 ] * OUTPUT_ERRORS[ 5 ] +
+        WEIGHTS[ 2 + 0 * 2 ] * OUTPUT_ERRORS[ 6 ] +
+        WEIGHTS[ 3 + 0 * 2 ] * OUTPUT_ERRORS[ 7 ],
+
+        WEIGHTS[ 2 + 3 * 2 ] * OUTPUT_ERRORS[ 2 ] +
+        WEIGHTS[ 3 + 3 * 2 ] * OUTPUT_ERRORS[ 3 ] +
+        WEIGHTS[ 2 + 1 * 2 ] * OUTPUT_ERRORS[ 6 ] +
+        WEIGHTS[ 3 + 1 * 2 ] * OUTPUT_ERRORS[ 7 ],
+
+        WEIGHTS[ 2 + 2 * 2 ] * OUTPUT_ERRORS[ 4 ] +
+        WEIGHTS[ 3 + 2 * 2 ] * OUTPUT_ERRORS[ 5 ],
+
+        WEIGHTS[ 2 + 3 * 2 ] * OUTPUT_ERRORS[ 4 ] +
+        WEIGHTS[ 3 + 3 * 2 ] * OUTPUT_ERRORS[ 5 ] +
+        WEIGHTS[ 2 + 2 * 2 ] * OUTPUT_ERRORS[ 6 ] +
+        WEIGHTS[ 3 + 2 * 2 ] * OUTPUT_ERRORS[ 7 ],
+
+        WEIGHTS[ 2 + 3 * 2 ] * OUTPUT_ERRORS[ 6 ] +
+        WEIGHTS[ 3 + 3 * 2 ] * OUTPUT_ERRORS[ 7 ]
+    ];
+
+    test_backpropagation(
+        LayerConvolution::new( 2, (2, 2) ).set_weights( WEIGHTS.into() ),
+        (3, 3).into(),
+        INPUTS,
+        OUTPUT_ERRORS,
+        expected_input_errors
+    );
+}
+
+#[test]
+fn test_layer_convolution_training_input1x1_kernel1x1_filter1x() {
+    init_logger();
+
+    const LEARNING_RATE: f32 = 1.11;
+    const INPUTS: &'static [f32] = &[
+        1.22
+    ];
+    const WEIGHTS: &'static [f32] = &[
+        1.33, 1.44
+    ];
+    const OUTPUTS: &'static [f32] = &[
+        WEIGHTS[0] + WEIGHTS[1] * INPUTS[0]
+    ];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        3.0
+    ];
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        (OUTPUTS[0] - EXPECTED_OUTPUTS[0]) * 2.0 / OUTPUTS.len() as f32
+    ];
+    const UPDATED_WEIGHTS: &'static [f32] = &[
+        WEIGHTS[0] - LEARNING_RATE * OUTPUT_ERRORS[0] * 1.0,
+        WEIGHTS[1] - LEARNING_RATE * OUTPUT_ERRORS[0] * INPUTS[0]
+    ];
+
+    test_training(
+        LayerConvolution::new( 1, (1, 1) ),
+        (1, 1, 1).into(),
+        INPUTS,
+        WEIGHTS,
+        EXPECTED_OUTPUTS,
+        LEARNING_RATE,
+        UPDATED_WEIGHTS
+    );
+}
+
+#[test]
+fn test_layer_convolution_training_input2x2_kernel1x1_filter1x() {
+    init_logger();
+
+    const LEARNING_RATE: f32 = 1.11;
+    const INPUTS: &'static [f32] = &[
+        1.22, 1.33,
+        1.44, 1.55
+    ];
+    const WEIGHTS: &'static [f32] = &[
+        1.66, 1.77
+    ];
+    const OUTPUTS: &'static [f32] = &[
+        WEIGHTS[0] + WEIGHTS[1] * INPUTS[0],
+        WEIGHTS[0] + WEIGHTS[1] * INPUTS[1],
+        WEIGHTS[0] + WEIGHTS[1] * INPUTS[2],
+        WEIGHTS[0] + WEIGHTS[1] * INPUTS[3]
+    ];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        1.0, 2.0, 3.0, 4.0
+    ];
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        (OUTPUTS[0] - EXPECTED_OUTPUTS[0]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[1] - EXPECTED_OUTPUTS[1]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[2] - EXPECTED_OUTPUTS[2]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[3] - EXPECTED_OUTPUTS[3]) * 2.0 / OUTPUTS.len() as f32
+    ];
+    const UPDATED_WEIGHTS: &'static [f32] = &[
+        WEIGHTS[0] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * 1.0 +
+            OUTPUT_ERRORS[1] * 1.0 +
+            OUTPUT_ERRORS[2] * 1.0 +
+            OUTPUT_ERRORS[3] * 1.0
+        ),
+        WEIGHTS[1] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * INPUTS[0] +
+            OUTPUT_ERRORS[1] * INPUTS[1] +
+            OUTPUT_ERRORS[2] * INPUTS[2] +
+            OUTPUT_ERRORS[3] * INPUTS[3]
+        )
+    ];
+
+    test_training(
+        LayerConvolution::new( 1, (1, 1) ),
+        (2, 2, 1).into(),
+        INPUTS,
+        WEIGHTS,
+        EXPECTED_OUTPUTS,
+        LEARNING_RATE,
+        UPDATED_WEIGHTS
+    );
+}
+
+#[test]
+fn test_layer_convolution_training_input2x2_kernel1x1_filter2x() {
+    init_logger();
+
+    const LEARNING_RATE: f32 = 1.11;
+    const INPUTS: &'static [f32] = &[
+        1.22, 1.33,
+        1.44, 1.55
+    ];
+    const WEIGHTS: &'static [f32] = &[
+        1.66, 1.77,
+
+        1.88, 1.99
+    ];
+    const OUTPUTS: &'static [f32] = &[
+        WEIGHTS[0] + WEIGHTS[2] * INPUTS[0],
+        WEIGHTS[1] + WEIGHTS[3] * INPUTS[0],
+        WEIGHTS[0] + WEIGHTS[2] * INPUTS[1],
+        WEIGHTS[1] + WEIGHTS[3] * INPUTS[1],
+        WEIGHTS[0] + WEIGHTS[2] * INPUTS[2],
+        WEIGHTS[1] + WEIGHTS[3] * INPUTS[2],
+        WEIGHTS[0] + WEIGHTS[2] * INPUTS[3],
+        WEIGHTS[1] + WEIGHTS[3] * INPUTS[3]
+    ];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        1.0, 2.0, 3.0, 4.0,
+        5.0, 6.0, 7.0, 8.0
+    ];
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        (OUTPUTS[0] - EXPECTED_OUTPUTS[0]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[1] - EXPECTED_OUTPUTS[1]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[2] - EXPECTED_OUTPUTS[2]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[3] - EXPECTED_OUTPUTS[3]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[4] - EXPECTED_OUTPUTS[4]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[5] - EXPECTED_OUTPUTS[5]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[6] - EXPECTED_OUTPUTS[6]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[7] - EXPECTED_OUTPUTS[7]) * 2.0 / OUTPUTS.len() as f32
+    ];
+    const UPDATED_WEIGHTS: &'static [f32] = &[
+        WEIGHTS[0] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * 1.0 +
+            OUTPUT_ERRORS[2] * 1.0 +
+            OUTPUT_ERRORS[4] * 1.0 +
+            OUTPUT_ERRORS[6] * 1.0
+        ),
+        WEIGHTS[1] - LEARNING_RATE * (
+            OUTPUT_ERRORS[1] * 1.0 +
+            OUTPUT_ERRORS[3] * 1.0 +
+            OUTPUT_ERRORS[5] * 1.0 +
+            OUTPUT_ERRORS[7] * 1.0
+        ),
+        WEIGHTS[2] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * INPUTS[0] +
+            OUTPUT_ERRORS[2] * INPUTS[1] +
+            OUTPUT_ERRORS[4] * INPUTS[2] +
+            OUTPUT_ERRORS[6] * INPUTS[3]
+        ),
+        WEIGHTS[3] - LEARNING_RATE * (
+            OUTPUT_ERRORS[1] * INPUTS[0] +
+            OUTPUT_ERRORS[3] * INPUTS[1] +
+            OUTPUT_ERRORS[5] * INPUTS[2] +
+            OUTPUT_ERRORS[7] * INPUTS[3]
+        )
+    ];
+
+    test_training(
+        LayerConvolution::new( 2, (1, 1) ),
+        (2, 2, 1).into(),
+        INPUTS,
+        WEIGHTS,
+        EXPECTED_OUTPUTS,
+        LEARNING_RATE,
+        UPDATED_WEIGHTS
+    );
+}
+
+#[test]
+fn test_layer_convolution_training_input2x2_kernel2x1_filter2x() {
+    init_logger();
+
+    const LEARNING_RATE: f32 = 1.11;
+    const INPUTS: &'static [f32] = &[
+        1.22, 1.33,
+        1.44, 1.55
+    ];
+    const WEIGHTS: &'static [f32] = &[
+        1.66, 1.77,
+
+        1.88, 1.99,
+        2.00, 2.11
+    ];
+    const OUTPUTS: &'static [f32] = &[
+        WEIGHTS[0] +
+            WEIGHTS[2] * INPUTS[0] +
+            WEIGHTS[4] * INPUTS[1],
+        WEIGHTS[1] +
+            WEIGHTS[3] * INPUTS[0] +
+            WEIGHTS[5] * INPUTS[1],
+        WEIGHTS[0] +
+            WEIGHTS[2] * INPUTS[2] +
+            WEIGHTS[4] * INPUTS[3],
+        WEIGHTS[1] +
+            WEIGHTS[3] * INPUTS[2] +
+            WEIGHTS[5] * INPUTS[3],
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 2, (2, 1) ).set_weights( WEIGHTS.into() ),
+        (2, 2, 1).into(),
+        INPUTS,
+        OUTPUTS,
+        (1, 2, 2).into()
+    );
+
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        1.0, 2.0, 3.0, 4.0
+    ];
+    const OUTPUT_ERRORS: &'static [f32] = &[
+        (OUTPUTS[0] - EXPECTED_OUTPUTS[0]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[1] - EXPECTED_OUTPUTS[1]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[2] - EXPECTED_OUTPUTS[2]) * 2.0 / OUTPUTS.len() as f32,
+        (OUTPUTS[3] - EXPECTED_OUTPUTS[3]) * 2.0 / OUTPUTS.len() as f32
+    ];
+    const UPDATED_WEIGHTS: &'static [f32] = &[
+        WEIGHTS[0] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * 1.0 +
+            OUTPUT_ERRORS[2] * 1.0
+        ),
+        WEIGHTS[1] - LEARNING_RATE * (
+            OUTPUT_ERRORS[1] * 1.0 +
+            OUTPUT_ERRORS[3] * 1.0
+        ),
+        WEIGHTS[2] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * INPUTS[0] +
+            OUTPUT_ERRORS[2] * INPUTS[2]
+        ),
+        WEIGHTS[3] - LEARNING_RATE * (
+            OUTPUT_ERRORS[1] * INPUTS[0] +
+            OUTPUT_ERRORS[3] * INPUTS[2]
+        ),
+        WEIGHTS[4] - LEARNING_RATE * (
+            OUTPUT_ERRORS[0] * INPUTS[1] +
+            OUTPUT_ERRORS[2] * INPUTS[3]
+        ),
+        WEIGHTS[5] - LEARNING_RATE * (
+            OUTPUT_ERRORS[1] * INPUTS[1] +
+            OUTPUT_ERRORS[3] * INPUTS[3]
+        ),
+    ];
+
+    test_training(
+        LayerConvolution::new( 2, (2, 1) ),
+        (2, 2, 1).into(),
+        INPUTS,
+        WEIGHTS,
+        EXPECTED_OUTPUTS,
+        LEARNING_RATE,
+        UPDATED_WEIGHTS
+    );
 }

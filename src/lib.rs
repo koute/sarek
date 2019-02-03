@@ -16,6 +16,7 @@ pub mod layers {
         nn::{
             layers::{
                 LayerActivation,
+                LayerConvolution,
                 LayerDense,
                 LayerDropout,
                 LayerIntoCategory,

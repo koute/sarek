@@ -1,7 +1,11 @@
 use {
     std::{
+        fmt,
         iter,
-        slice
+        slice,
+        sync::{
+            Arc
+        }
     },
     decorum,
     crate::{
@@ -11,6 +15,9 @@ use {
             },
             shape::{
                 Shape
+            },
+            utils::{
+                SliceDebug
             }
         },
         nn::{
@@ -68,6 +75,81 @@ impl LayerPrototype for LayerActivation {
 
     fn weight_count( &self, _: &Shape ) -> usize {
         0
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct LayerConvolution {
+    pub(crate) name: Name,
+    pub(crate) filter_count: usize,
+    pub(crate) kernel_size: (usize, usize),
+    pub(crate) weights: Option< Arc< Vec< f32 > > >
+}
+
+impl Eq for LayerConvolution {}
+impl fmt::Debug for LayerConvolution {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        fmt.debug_struct( "LayerConvolution" )
+            .field( "name", &self.name )
+            .field( "filter_count", &self.filter_count )
+            .field( "kernel_size", &self.kernel_size )
+            .field( "weights", &self.weights.as_ref().map( |slice| SliceDebug( &slice ) ) )
+            .finish()
+    }
+}
+
+impl LayerConvolution {
+    pub fn new( filter_count: usize, kernel_size: (usize, usize) ) -> Self {
+        assert_ne!( filter_count, 0 );
+        assert_ne!( kernel_size.0, 0 );
+        assert_ne!( kernel_size.1, 0 );
+
+        Self {
+            name: Name::new_unique(),
+            filter_count,
+            kernel_size,
+            weights: None
+        }
+    }
+
+    pub fn set_weights( &mut self, weights: Vec< f32 > ) -> &mut Self {
+        assert!(
+            !weights.iter().cloned().any( |value| value.is_nan() || value.is_infinite() ),
+            "Weights contain either a NaN or an Inf"
+        );
+
+        self.weights = Some( Arc::new( weights ) );
+        self
+    }
+}
+
+impl LayerPrototype for LayerConvolution {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+
+    fn output_shape( &self, input_shape: &Shape ) -> Shape {
+        let input_dimensions = input_shape.dimension_count();
+        assert!( input_dimensions == 2 || input_dimensions == 3 );
+        assert!( self.kernel_size.0 <= input_shape.x() );
+        assert!( self.kernel_size.1 <= input_shape.y() );
+
+        let out_x = input_shape.x() - self.kernel_size.0 + 1;
+        let out_y = input_shape.y() - self.kernel_size.1 + 1;
+        let out_z = self.filter_count;
+
+        Shape::new_3d( out_x, out_y, out_z )
+    }
+
+    fn weight_count( &self, input_shape: &Shape ) -> usize {
+        let input_dimensions = input_shape.dimension_count();
+        assert!( input_dimensions == 2 || input_dimensions == 3 );
+        self.kernel_size.0 * self.kernel_size.1 * input_shape.z() * self.filter_count + self.filter_count
     }
 }
 
@@ -257,6 +339,7 @@ impl LayerPrototype for LayerSoftmax {
 #[derive(Clone, Debug)]
 pub enum Layer {
     Activation( LayerActivation ),
+    Convolution( LayerConvolution ),
     Dense( LayerDense ),
     Dropout( LayerDropout ),
     IntoCategory( LayerIntoCategory ),
@@ -339,6 +422,7 @@ impl< 'a > From< &'a mut Layer > for Layer {
 
 layer_boilerplate!(
     Layer::Activation( LayerActivation )
+    Layer::Convolution( LayerConvolution )
     Layer::Dense( LayerDense )
     Layer::Dropout( LayerDropout )
     Layer::IntoCategory( LayerIntoCategory )
@@ -485,3 +569,94 @@ impl IntoLayerIter for () {
 */
 
 impl_into_layer_iter!();
+
+#[test]
+fn test_layer_convolution_prototype() {
+    struct T {
+        input: Shape,
+        filter_count: usize,
+        kernel_size: (usize, usize),
+        expected_output: Shape,
+        expected_weight_count: usize
+    }
+
+    fn test( data: T ) {
+        let layer = LayerConvolution::new( data.filter_count, data.kernel_size );
+        let output = layer.output_shape( &data.input );
+        let weight_count = layer.weight_count( &data.input );
+        assert_eq!( output, data.expected_output );
+        assert_eq!( weight_count, data.expected_weight_count );
+    }
+
+    test( T {
+        input: Shape::new_2d( 4, 4 ),
+        filter_count: 1,
+        kernel_size: (1, 1),
+        expected_output: Shape::new_3d( 4, 4, 1 ),
+        expected_weight_count: 1 + 1
+    });
+
+    test( T {
+        input: Shape::new_2d( 4, 4 ),
+        filter_count: 1,
+        kernel_size: (2, 2),
+        expected_output: Shape::new_3d( 3, 3, 1 ),
+        expected_weight_count: 4 + 1
+    });
+
+    test( T {
+        input: Shape::new_2d( 4, 4 ),
+        filter_count: 1,
+        kernel_size: (3, 3),
+        expected_output: Shape::new_3d( 2, 2, 1 ),
+        expected_weight_count: 9 + 1
+    });
+
+    test( T {
+        input: Shape::new_2d( 4, 4 ),
+        filter_count: 1,
+        kernel_size: (4, 4),
+        expected_output: Shape::new_3d( 1, 1, 1 ),
+        expected_weight_count: 16 + 1
+    });
+
+    test( T {
+        input: Shape::new_2d( 4, 4 ),
+        filter_count: 2,
+        kernel_size: (3, 3),
+        expected_output: Shape::new_3d( 2, 2, 2 ),
+        expected_weight_count: 18 + 2
+    });
+
+    test( T {
+        input: Shape::new_3d( 4, 4, 1 ),
+        filter_count: 2,
+        kernel_size: (3, 3),
+        expected_output: Shape::new_3d( 2, 2, 2 ),
+        expected_weight_count: 18 + 2
+    });
+
+    test( T {
+        input: Shape::new_3d( 4, 4, 2 ),
+        filter_count: 2,
+        kernel_size: (3, 3),
+        expected_output: Shape::new_3d( 2, 2, 2 ),
+        expected_weight_count: 36 + 2
+    });
+
+    test( T {
+        input: Shape::new_3d( 1, 2, 2 ),
+        filter_count: 1,
+        kernel_size: (1, 2),
+        expected_output: Shape::new_3d( 1, 1, 1 ),
+        expected_weight_count: 5
+    });
+
+    test( T {
+        input: Shape::new_3d( 2, 2, 1 ),
+        filter_count: 1,
+        kernel_size: (2, 1),
+        expected_output: Shape::new_3d( 1, 2, 1 ),
+        expected_weight_count: 3
+    });
+}
