@@ -18,7 +18,8 @@ use {
             Read
         },
         path::{
-            Path
+            Path,
+            PathBuf
         }
     }
 };
@@ -82,16 +83,25 @@ fn to_data_source( images: Vec< f32 >, labels: Vec< u32 > ) -> DataSet< VecSourc
 
 type VecSource< T > = SliceSource< T, Vec< T > >;
 
+fn data_path() -> PathBuf {
+    Path::new( env!( "CARGO_MANIFEST_DIR" ) )
+        .join( "examples" )
+        .join( "cifar10" )
+        .join( "data" )
+        .join( "cifar-10-batches-bin" )
+}
+
 pub fn load_training_data() -> DataSet< VecSource< f32 >, VecSource< u32 > > {
     info!( "Starting to load the training data set..." );
 
     let mut images = Vec::new();
     let mut labels = Vec::new();
-    load_from_file( "data/cifar-10-batches-bin/data_batch_1.bin", &mut images, &mut labels ).unwrap();
-    load_from_file( "data/cifar-10-batches-bin/data_batch_2.bin", &mut images, &mut labels ).unwrap();
-    load_from_file( "data/cifar-10-batches-bin/data_batch_3.bin", &mut images, &mut labels ).unwrap();
-    load_from_file( "data/cifar-10-batches-bin/data_batch_4.bin", &mut images, &mut labels ).unwrap();
-    load_from_file( "data/cifar-10-batches-bin/data_batch_5.bin", &mut images, &mut labels ).unwrap();
+    let path = data_path();
+    load_from_file( path.join( "data_batch_1.bin" ), &mut images, &mut labels ).unwrap();
+    load_from_file( path.join( "data_batch_2.bin" ), &mut images, &mut labels ).unwrap();
+    load_from_file( path.join( "data_batch_3.bin" ), &mut images, &mut labels ).unwrap();
+    load_from_file( path.join( "data_batch_4.bin" ), &mut images, &mut labels ).unwrap();
+    load_from_file( path.join( "data_batch_5.bin" ), &mut images, &mut labels ).unwrap();
     let data = to_data_source( images, labels );
 
     info!( "Finished loading the training data set!" );
@@ -103,7 +113,7 @@ pub fn load_test_data() -> DataSet< VecSource< f32 >, VecSource< u32 > > {
 
     let mut images = Vec::new();
     let mut labels = Vec::new();
-    load_from_file( "data/cifar-10-batches-bin/test_batch.bin", &mut images, &mut labels ).unwrap();
+    load_from_file( data_path().join( "test_batch.bin" ), &mut images, &mut labels ).unwrap();
     let data = to_data_source( images, labels );
 
     info!( "Finished loading the test data set!" );
