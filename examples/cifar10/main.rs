@@ -6,7 +6,6 @@ use {
         Context,
         Model,
         Trainer,
-        TrainingOpts,
         layers::{
             *
         }
@@ -32,26 +31,26 @@ fn main() {
     let ctx = Context::new().unwrap();
 
     let training_data = training_data.join().unwrap();
+
     let model = Model::new_sequential( training_data.input_shape(), (
-        LayerDense::new( 96 ),
+        LayerConvolution::new( 4, (3, 3) ),
         LayerActivation::new(),
+        LayerMaxPooling::new( (2, 2) ),
+
         LayerDense::new( 32 ),
         LayerActivation::new(),
         LayerDense::new( 32 ),
         LayerActivation::new(),
         LayerDense::new( 32 ),
         LayerActivation::new(),
+
         LayerDense::new( 10 ),
         LayerSoftmax::new(),
         LayerIntoCategory::new()
     ));
 
-    let mut opts = TrainingOpts::new();
-    opts.set_batch_size( 128 );
-
     let test_data = test_data.join().unwrap();
-
-    let mut instance = Trainer::new_with_opts( &ctx, model, training_data, opts ).unwrap();
+    let mut instance = Trainer::new( &ctx, model, training_data ).unwrap();
     for _ in 0..10 {
         instance.train();
 
