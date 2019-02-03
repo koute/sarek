@@ -56,3 +56,13 @@ pub fn py_err( py: Python, error: PyErr ) -> Box< Error + Send > {
 
     Box::new( Err( message ) )
 }
+
+pub trait PyResultExt< T > {
+    fn unwrap_py( self, py: Python ) -> T;
+}
+
+impl< T > PyResultExt< T > for Result< T, PyErr > {
+    fn unwrap_py( self, py: Python ) -> T {
+        self.map_err( |err| py_err( py, err ) ).unwrap()
+    }
+}
