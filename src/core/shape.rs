@@ -213,6 +213,16 @@ impl< 'a > IntoIterator for &'a Shape {
     }
 }
 
+impl< 'a > IntoIterator for &'a mut Shape {
+    type Item = usize;
+    type IntoIter = Iter< 'a >;
+
+    #[inline]
+    fn into_iter( self ) -> Self::IntoIter {
+        Iter( self.0.iter() )
+    }
+}
+
 impl From< usize > for Shape {
     #[inline]
     fn from( x: usize ) -> Self {
