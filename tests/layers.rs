@@ -124,12 +124,12 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
                 instance.set_weights( "dense_layer", &original_weights ).unwrap();
                 instance.predict( &network_input )
             };
-            let output = output.to_slice::< f32 >().unwrap();
+            let output_slice = output.to_slice::< f32 >().unwrap();
 
             // Now we calculate what our expected outputs should be
             // so that we'll get the desired output errors for our
             // layer under test to backpropagate.
-            let expected_outputs: Vec< _ > = output
+            let expected_outputs: Vec< _ > = output_slice
                 .iter().cloned()
                 .zip( output_errors.iter().cloned() )
                 .map( |(output, target_output_error)| {
@@ -142,7 +142,7 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
                 }).collect();
 
             // We can finally train the network.
-            let expected_outputs = SliceSource::from( expected_outputs.len().into(), expected_outputs );
+            let expected_outputs = SliceSource::from( output.shape(), expected_outputs );
             let data_set = DataSet::new( network_input, expected_outputs );
 
             let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
