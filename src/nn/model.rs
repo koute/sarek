@@ -55,7 +55,7 @@ impl Model {
         target_layer.map( |layer| (layer, input_shape) )
     }
 
-    pub(crate) fn output_shape( &self ) -> Shape {
+    pub fn output_shape( &self ) -> Shape {
         let mut input_shape = self.input_shape();
         for layer in &self.layers {
             input_shape = layer.output_shape( &input_shape );
