@@ -1,4 +1,10 @@
 use {
+    std::{
+        fmt,
+        intrinsics::{
+            type_name
+        }
+    },
     crate::{
         core::{
             data_type::{
@@ -54,4 +60,18 @@ pub fn assert_can_be_upcast( data_type: Type, slice: &[u8] ) {
         data_type,
         data_type.byte_size()
     );
+}
+
+pub struct SliceDebug< 'a, T >( pub &'a [T] );
+impl< 'a, T > fmt::Debug for SliceDebug< 'a, T > {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        let name = unsafe { type_name::< T >() };
+        write!( fmt, "[{}; {}]", name, self.0.len() )
+    }
+}
+
+#[test]
+fn test_slice_debug() {
+    let string = format!( "{:?}", SliceDebug( &[1.0_f32] ) );
+    assert_eq!( string, "[f32; 1]" );
 }

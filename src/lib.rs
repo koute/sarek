@@ -1,4 +1,5 @@
 #![feature(non_exhaustive)]
+#![feature(core_intrinsics)]
 #![allow(clippy::into_iter_on_ref)]
 #![allow(clippy::into_iter_on_array)]
 #![allow(clippy::new_without_default)]
