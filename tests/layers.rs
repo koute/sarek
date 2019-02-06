@@ -1233,6 +1233,61 @@ fn test_layer_convolution_prediction_input3x3_kernel2x2_filter1x() {
 }
 
 #[test]
+fn test_layer_convolution_prediction_input2x2x2_kernel2x2_filter2x() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[
+        0.1, 0.2,
+        0.3, 0.4,
+        0.5, 0.6,
+        0.7, 0.8
+    ];
+
+    const WEIGHTS: &'static [f32] = &[
+        1.0,
+        2.0,
+
+        3.0, 4.0,
+        5.0, 6.0,
+        7.0, 8.0,
+        9.0, 10.0,
+        11.0, 12.0,
+        13.0, 14.0,
+        15.0, 16.0,
+        17.0, 18.0
+    ];
+
+    let expected_outputs: &[f32] = &[
+        WEIGHTS[ 0 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 2 + 0 + 0 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 2 + 0 + 2 ] +
+            INPUTS[ 2 ] * WEIGHTS[ 2 + 0 + 4 ] +
+            INPUTS[ 3 ] * WEIGHTS[ 2 + 0 + 6 ] +
+            INPUTS[ 4 ] * WEIGHTS[ 2 + 8 + 0 ] +
+            INPUTS[ 5 ] * WEIGHTS[ 2 + 8 + 2 ] +
+            INPUTS[ 6 ] * WEIGHTS[ 2 + 8 + 4 ] +
+            INPUTS[ 7 ] * WEIGHTS[ 2 + 8 + 6 ],
+        WEIGHTS[ 1 ] +
+            INPUTS[ 0 ] * WEIGHTS[ 2 + 0 + 1 ] +
+            INPUTS[ 1 ] * WEIGHTS[ 2 + 0 + 3 ] +
+            INPUTS[ 2 ] * WEIGHTS[ 2 + 0 + 5 ] +
+            INPUTS[ 3 ] * WEIGHTS[ 2 + 0 + 7 ] +
+            INPUTS[ 4 ] * WEIGHTS[ 2 + 8 + 1 ] +
+            INPUTS[ 5 ] * WEIGHTS[ 2 + 8 + 3 ] +
+            INPUTS[ 6 ] * WEIGHTS[ 2 + 8 + 5 ] +
+            INPUTS[ 7 ] * WEIGHTS[ 2 + 8 + 7 ],
+    ];
+
+    test_prediction(
+        LayerConvolution::new( 2, (2, 2) ).set_weights( WEIGHTS.into() ),
+        (2, 2, 2).into(),
+        INPUTS,
+        expected_outputs,
+        (1, 1, 2).into()
+    );
+}
+
+#[test]
 fn test_layer_convolution_prediction_input3x3_kernel2x2_filter2x() {
     init_logger();
 
