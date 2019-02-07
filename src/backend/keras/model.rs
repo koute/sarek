@@ -159,26 +159,24 @@ impl ModelInstance {
             let tf_ns = py.import( "tensorflow" ).unwrap();
             let keras_ns = tf_ns.getattr( "keras" ).unwrap();
             let layers_ns = keras_ns.getattr( "layers" ).unwrap();
-            let models_ns = keras_ns.getattr( "models" ).unwrap();
             let optimizers_ns = keras_ns.getattr( "optimizers" ).unwrap();
             let is_trainable = training_opts.is_some();
             let mut output_kind = OutputKind::Regression;
-            let mut is_first = true;
             let mut input_shape = model.input_shape();
 
+            let initial_layer = {
+                let kwargs = PyDict::new( py );
+                kwargs.set_item( "shape", PyTuple::new( py, &input_shape ) ).unwrap();
+                keras_ns.getattr( "Input" ).unwrap().call( (), Some( kwargs ) ).unwrap()
+            };
+
+            let mut last_layer = initial_layer.clone();
+
             let model_layer_count = model.layers.len();
-            let mut layers = Vec::with_capacity( model.layers.len() );
             for (layer_index, layer) in model.layers.iter_mut().enumerate() {
                 let mut kwargs = PyDict::new( py );
 
-                if is_first {
-                    let shape = PyTuple::new( py, &input_shape );
-                    kwargs.set_item( "input_shape", shape ).unwrap();
-                    is_first = false;
-                }
-
                 let is_last = layer_index + 1 == model_layer_count;
-
                 match layer {
                     Layer::Activation( LayerActivation { name, activation } ) => {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
@@ -198,7 +196,7 @@ impl ModelInstance {
                             Activation::TanH =>
                                 layers_ns.getattr( "Activation" ).unwrap().call( ("tanh",), Some( kwargs ) ).unwrap()
                         };
-                        layers.push( layer );
+                        last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
                     Layer::Convolution( layer ) => {
                         if input_shape.dimension_count() == 2 {
@@ -206,7 +204,7 @@ impl ModelInstance {
                             kwargs.set_item( "target_shape", target_shape ).unwrap();
                             kwargs.set_item( "trainable", is_trainable ).unwrap();
                             let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            layers.push( layer );
+                            last_layer = layer.call( (last_layer,), None ).unwrap();
 
                             kwargs = PyDict::new( py );
                         }
@@ -230,21 +228,21 @@ impl ModelInstance {
                         }
 
                         let layer_obj = layers_ns.getattr( "Conv2D" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
-                        layers.push( layer_obj );
+                        last_layer = layer_obj.call( (last_layer,), None ).unwrap();
                         {
                             let target_shape = layer.output_shape( &input_shape );
                             let target_shape = PyTuple::new( py, &target_shape );
                             kwargs = PyDict::new( py );
                             kwargs.set_item( "target_shape", target_shape ).unwrap();
                             let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
-                            layers.push( layer_obj );
+                            last_layer = layer_obj.call( (last_layer,), None ).unwrap();
                         }
                     },
                     Layer::Dense( LayerDense { name, size } ) => {
                         {
                             // Dense layers expect a one dimensional input.
                             let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            layers.push( layer );
+                            last_layer = layer.call( (last_layer,), None ).unwrap();
 
                             kwargs = PyDict::new( py );
                         }
@@ -252,25 +250,19 @@ impl ModelInstance {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
                         let layer = layers_ns.getattr( "Dense" ).unwrap().call( (*size,), Some( kwargs ) ).unwrap();
-                        layers.push( layer );
+                        last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
                     Layer::Dropout( LayerDropout { name, rate } ) => {
                         let rate: f32 = rate.clone().into();
                         kwargs.set_item( "name", name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
                         let layer = layers_ns.getattr( "Dropout" ).unwrap().call( (rate,), Some( kwargs ) ).unwrap();
-                        layers.push( layer );
+                        last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
                     Layer::IntoCategory( _ ) => {
                         assert!( is_last, "The `LayerIntoCategory` is only supported as the last layer of the network" );
-                        if layers.is_empty() {
-                            let target_shape = PyTuple::new( py, &input_shape );
-                            kwargs.set_item( "target_shape", target_shape ).unwrap();
-
-                            let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            layers.push( layer );
-                        }
-
+                        let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), None ).unwrap();
+                        last_layer = layer.call( (last_layer,), None ).unwrap();
                         output_kind = OutputKind::SparseCategory;
                     },
                     Layer::MaxPooling( layer ) => {
@@ -279,7 +271,7 @@ impl ModelInstance {
                             kwargs.set_item( "target_shape", target_shape ).unwrap();
                             kwargs.set_item( "trainable", is_trainable ).unwrap();
                             let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            layers.push( layer );
+                            last_layer = layer.call( (last_layer,), None ).unwrap();
 
                             kwargs = PyDict::new( py );
                         }
@@ -291,14 +283,14 @@ impl ModelInstance {
                         //   https://stackoverflow.com/questions/37674306
                         kwargs.set_item( "padding", "same" ).unwrap();
                         let layer_obj = layers_ns.getattr( "MaxPool2D" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                        layers.push( layer_obj );
+                        last_layer = layer_obj.call( (last_layer,), None ).unwrap();
                         {
                             let target_shape = layer.output_shape( &input_shape );
                             let target_shape = PyTuple::new( py, &target_shape );
                             kwargs = PyDict::new( py );
                             kwargs.set_item( "target_shape", target_shape ).unwrap();
                             let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
-                            layers.push( layer_obj );
+                            last_layer = layer_obj.call( (last_layer,), None ).unwrap();
                         }
                     },
                     Layer::Reshape( LayerReshape { name, shape } ) => {
@@ -307,31 +299,32 @@ impl ModelInstance {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
                         let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                        layers.push( layer );
+                        last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
                     Layer::Softmax( LayerSoftmax { name } ) => {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
                         let layer = layers_ns.getattr( "Activation" ).unwrap().call( ("softmax",), Some( kwargs ) ).unwrap();
-                        layers.push( layer );
+                        last_layer = layer.call( (last_layer,), None ).unwrap();
                     }
                 }
 
                 input_shape = layer.output_shape( &input_shape );
             }
 
-            if layers.is_empty() {
+            if last_layer == initial_layer {
                 let kwargs = PyDict::new( py );
-                let shape = PyTuple::new( py, &model.input_shape() );
-                kwargs.set_item( "input_shape", shape ).unwrap();
-                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                let shape = PyTuple::new( py, &input_shape );
+                kwargs.set_item( "target_shape", shape ).unwrap();
 
-                let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                layers.push( layer );
+                let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                last_layer = layer.call( (last_layer,), None ).unwrap_py( py );
             }
 
-            let layers = PyList::new( py, &layers );
-            let model_obj = models_ns.getattr( "Sequential" ).unwrap().call( (layers,), None )
+            let kwargs = PyDict::new( py );
+            kwargs.set_item( "inputs", initial_layer ).unwrap();
+            kwargs.set_item( "outputs", last_layer ).unwrap();
+            let model_obj = keras_ns.getattr( "Model" ).unwrap().call( (), Some( kwargs ) )
                 .map_err( |err| py_err( py, err ) ).unwrap();
 
             if is_trainable {
