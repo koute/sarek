@@ -221,6 +221,18 @@ fn test_training< I >(
 }
 
 #[test]
+fn test_empty_network_prediction() {
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+    test_prediction(
+        (),
+        (2, 2).into(),
+        INPUTS,
+        INPUTS,
+        (2, 2).into()
+    );
+}
+
+#[test]
 fn test_layer_dense_prediction() {
     init_logger();
 
