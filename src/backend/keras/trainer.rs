@@ -136,12 +136,7 @@ impl< I, O > Trainer< I, O >
     pub fn new_with_opts( ctx: &Context, model: Model, data_set: DataSet< I, O >, training_opts: TrainingOpts )
         -> Result< Self, TrainerInitializationError >
     {
-        let batch_size = training_opts.batch_size.unwrap_or( 32 );
-        let pretrain_weights = training_opts.pretrain_weights;
-        let mut model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
-        let mut rng = Pcg32::seed_from_u64( 123456 );
-
-        let input_shape = model_instance.input_shape();
+        let input_shape = model.input_shape();
         assert_eq!(
             data_set.input_shape(),
             input_shape,
@@ -150,7 +145,7 @@ impl< I, O > Trainer< I, O >
             data_set.input_shape()
         );
 
-        let output_shape = model_instance.output_shape();
+        let output_shape = model.output_shape();
         assert_eq!(
             data_set.output_shape(),
             output_shape,
@@ -158,6 +153,11 @@ impl< I, O > Trainer< I, O >
             output_shape,
             data_set.output_shape()
         );
+
+        let batch_size = training_opts.batch_size.unwrap_or( 32 );
+        let pretrain_weights = training_opts.pretrain_weights;
+        let mut model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
+        let mut rng = Pcg32::seed_from_u64( 123456 );
 
         if pretrain_weights {
             initialize_weights( ctx, &mut rng, &mut model_instance, data_set.input_data() )?;
