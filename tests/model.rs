@@ -16,6 +16,16 @@ fn init_logger() {
     let _ = env_logger::try_init();
 }
 
+fn calculate_mean_and_variance( buffer: &[f32] ) -> (f32, f32) {
+    let mean = buffer.iter().cloned().sum::< f32 >() / buffer.len() as f32;
+    let variance = buffer.iter().cloned().map( |x| {
+        let a = x - mean;
+        a * a
+    }).sum::< f32 >() / buffer.len() as f32;
+
+    (mean, variance)
+}
+
 fn get_testing_loss_classification( batch_size: usize, inputs: &[f32], expected_outputs: &[u32] ) -> Loss {
     let ctx = Context::new().unwrap();
     let input_shape: Shape = (inputs.len() / batch_size).into();
@@ -60,6 +70,7 @@ fn get_training_loss_classification( batch_size: usize, inputs: &[f32], expected
     opts.set_batch_size( batch_size );
     opts.set_optimizer( optimizer );
     opts.disable_weight_pretraining();
+    opts.disable_input_normalization();
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
     let loss_1 = instance.train();
@@ -83,6 +94,7 @@ fn get_training_loss( batch_size: usize, inputs: &[f32], expected_outputs: &[f32
     opts.set_batch_size( batch_size );
     opts.set_optimizer( optimizer );
     opts.disable_weight_pretraining();
+    opts.disable_input_normalization();
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
     let loss_1 = instance.train();
@@ -237,4 +249,53 @@ fn test_testing_loss_regression() {
     let loss = get_testing_loss_regression( 2, inputs, expected_outputs );
     assert_f32_eq( loss.get(), expected_loss );
     assert!( loss.accuracy().is_none() );
+}
+
+fn test_input_normalization( inputs: &[f32], expected_mean: f32, expected_variance: f32 ) {
+    let expected_outputs: Vec< _ > = inputs.iter().map( |_| 0.0 ).collect();
+
+    let ctx = Context::new().unwrap();
+    let model = Model::new_sequential( (2, 2), () );
+
+    let inputs = SliceSource::from( (2, 2).into(), inputs );
+    let expected_outputs = SliceSource::from( (2, 2).into(), expected_outputs );
+    let data_set = DataSet::new( &inputs, expected_outputs );
+
+    let mut opts = TrainingOpts::new();
+    let mut optimizer = OptimizerSGD::new();
+    optimizer.set_learning_rate( 1.0 );
+    opts.set_optimizer( optimizer );
+
+    let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
+    let outputs = instance.predict( &inputs );
+    let outputs = outputs.to_slice::< f32 >().unwrap();
+    assert!( outputs.iter().cloned().all( |x| !x.is_nan() ), "The output contains NaNs: {:?}", outputs );
+
+    let (mean, variance) = calculate_mean_and_variance( outputs );
+    assert_f32_eq( mean, expected_mean );
+    assert_f32_eq( variance, expected_variance );
+}
+
+#[test]
+fn test_input_normalization_only_one_element() {
+    init_logger();
+
+    let inputs = &[
+        1.0, 2.0, 3.0, 4.0
+    ];
+
+    test_input_normalization( inputs, 0.0, 0.0 );
+}
+
+
+#[test]
+fn test_input_normalization_multiple_elements() {
+    init_logger();
+
+    let inputs = &[
+        1.0, 2.0, 3.0, 4.0,
+        10.0, 5.0, 2.0, 0.5
+    ];
+
+    test_input_normalization( inputs, 0.0, 1.0 );
 }

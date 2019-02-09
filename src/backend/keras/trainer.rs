@@ -48,6 +48,10 @@ use {
             }
         },
         nn::{
+            layers::{
+                LayerMultiply,
+                LayerShift
+            },
             lsuv::{
                 InitializeWeightsError,
                 initialize_weights
@@ -125,6 +129,71 @@ impl< I, O > DerefMut for Trainer< I, O >
     }
 }
 
+fn average_over< I, O, F >( data_set: &DataSet< I, O >, callback: F ) -> Vec< f64 >
+    where I: DataSource + Send + Sync,
+            O: DataSource + Send + Sync,
+            F: Fn( usize, f64 ) -> f64
+{
+    let element_size = data_set.input_data().shape().product();
+    let mut results = Vec::new();
+    results.resize( element_size, 0.0 );
+
+    let chunk_size = 128;
+    let mut buffer: Vec< f32 > = Vec::new();
+    let buffer_size = chunk_size * element_size;
+    buffer.reserve( buffer_size );
+    unsafe { buffer.set_len( buffer_size ); }
+
+    for training_chunk in data_set.chunks( chunk_size ) {
+        let chunk_size = training_chunk.len();
+        let buffer = &mut buffer[ ..chunk_size * element_size ];
+        training_chunk.input_data().gather_into( .., buffer );
+        for element in buffer.chunks_exact( element_size ) {
+            debug_assert_eq!( element.len(), results.len() );
+
+            let iter = results.iter_mut()
+                .zip( element.iter().cloned() );
+
+            for (index, (result, value)) in iter.enumerate() {
+                *result += callback( index, value as f64 );
+            }
+        }
+    }
+
+    let length = data_set.len() as f64;
+    for result in results.iter_mut() {
+        *result /= length;
+    }
+
+    results
+}
+
+fn normalize_inputs< I, O >( data_set: &DataSet< I, O > ) -> (Vec< f32 >, Vec< f32 >)
+    where I: DataSource + Send + Sync,
+          O: DataSource + Send + Sync
+{
+    info!( "Calculating input normalization matrices..." );
+
+    let mean_shift = average_over( &data_set, |_, x| -x );
+    let mut variance_adjustment = average_over( &data_set, |index, x| {
+        let a = x + mean_shift[ index ];
+        a * a
+    });
+
+    for value in variance_adjustment.iter_mut() {
+        if *value > 0.0000001 {
+            *value = 1.0 / value.sqrt();
+        } else {
+            *value = 1.0;
+        }
+    }
+
+    let mean_shift: Vec< _ > = mean_shift.into_iter().map( |x| x as f32 ).collect();
+    let variance_adjustment: Vec< _ > = variance_adjustment.into_iter().map( |x| x as f32 ).collect();
+
+    (mean_shift, variance_adjustment)
+}
+
 impl< I, O > Trainer< I, O >
     where I: DataSource + Send + Sync,
           O: DataSource + Send + Sync
@@ -133,7 +202,7 @@ impl< I, O > Trainer< I, O >
         Self::new_with_opts( ctx, model, data_set, TrainingOpts::new() )
     }
 
-    pub fn new_with_opts( ctx: &Context, model: Model, data_set: DataSet< I, O >, training_opts: TrainingOpts )
+    pub fn new_with_opts( ctx: &Context, mut model: Model, data_set: DataSet< I, O >, training_opts: TrainingOpts )
         -> Result< Self, TrainerInitializationError >
     {
         let input_shape = model.input_shape();
@@ -153,6 +222,16 @@ impl< I, O > Trainer< I, O >
             output_shape,
             data_set.output_shape()
         );
+
+        if training_opts.normalize_inputs {
+            let (mean_shift, variance_adjustment) = normalize_inputs( &data_set );
+            let layers = model.layers;
+            model.layers = Vec::with_capacity( layers.len() + 1 );
+
+            model.layers.push( LayerShift::new( mean_shift ).into() );
+            model.layers.push( LayerMultiply::new( variance_adjustment ).into() );
+            model.layers.extend( layers.into_iter() );
+        }
 
         let batch_size = training_opts.batch_size.unwrap_or( 32 );
         let pretrain_weights = training_opts.pretrain_weights;

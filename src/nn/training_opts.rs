@@ -12,7 +12,8 @@ use {
 pub struct TrainingOpts {
     pub(crate) optimizer: Optimizer,
     pub(crate) batch_size: Option< usize >,
-    pub(crate) pretrain_weights: bool
+    pub(crate) pretrain_weights: bool,
+    pub(crate) normalize_inputs: bool
 }
 
 impl TrainingOpts {
@@ -20,7 +21,8 @@ impl TrainingOpts {
         TrainingOpts {
             optimizer: OptimizerAdam::new().into(),
             batch_size: None,
-            pretrain_weights: true
+            pretrain_weights: true,
+            normalize_inputs: true
         }
     }
 
@@ -40,5 +42,9 @@ impl TrainingOpts {
 
     pub fn disable_weight_pretraining( &mut self ) {
         self.pretrain_weights = false;
+    }
+
+    pub fn disable_input_normalization( &mut self ) {
+        self.normalize_inputs = false;
     }
 }
