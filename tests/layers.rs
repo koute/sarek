@@ -1913,3 +1913,43 @@ fn test_layer_max_pooling_prediction_input3x3_pool2x2() {
         (2, 2, 1).into()
     );
 }
+
+#[test]
+fn test_layer_shift() {
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+    const DELTA: &'static [f32] = &[ 1.0, 2.0, 3.0, 4.0 ];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        INPUTS[0] + DELTA[0],
+        INPUTS[1] + DELTA[1],
+        INPUTS[2] + DELTA[2],
+        INPUTS[3] + DELTA[3]
+    ];
+
+    test_prediction(
+        LayerShift::new( DELTA.into() ),
+        (2, 2).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (2, 2).into()
+    );
+}
+
+#[test]
+fn test_layer_multiply() {
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+    const DELTA: &'static [f32] = &[ 1.0, 2.0, 3.0, 4.0 ];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        INPUTS[0] * DELTA[0],
+        INPUTS[1] * DELTA[1],
+        INPUTS[2] * DELTA[2],
+        INPUTS[3] * DELTA[3]
+    ];
+
+    test_prediction(
+        LayerMultiply::new( DELTA.into() ),
+        (2, 2).into(),
+        INPUTS,
+        EXPECTED_OUTPUTS,
+        (2, 2).into()
+    );
+}

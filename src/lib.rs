@@ -21,7 +21,9 @@ pub mod layers {
                 LayerDropout,
                 LayerIntoCategory,
                 LayerMaxPooling,
+                LayerMultiply,
                 LayerReshape,
+                LayerShift,
                 LayerSoftmax
             }
         }

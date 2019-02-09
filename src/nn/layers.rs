@@ -305,6 +305,50 @@ impl LayerPrototype for LayerMaxPooling {
     }
 }
 
+#[derive(Clone, PartialEq)]
+pub struct LayerMultiply {
+    pub(crate) name: Name,
+    pub(crate) values: Arc< Vec< f32 > >
+}
+
+impl Eq for LayerMultiply {}
+impl fmt::Debug for LayerMultiply {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        fmt.debug_struct( "LayerMultiply" )
+            .field( "name", &self.name )
+            .field( "values", &SliceDebug( &self.values ) )
+            .finish()
+    }
+}
+
+impl LayerMultiply {
+    pub fn new( values: Vec< f32 > ) -> Self {
+        Self {
+            name: Name::new_unique(),
+            values: Arc::new( values )
+        }
+    }
+}
+
+impl LayerPrototype for LayerMultiply {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+
+    fn output_shape( &self, input_shape: &Shape ) -> Shape {
+        input_shape.clone()
+    }
+
+    fn weight_count( &self, _: &Shape ) -> usize {
+        0
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LayerReshape {
     pub(crate) name: Name,
@@ -333,6 +377,50 @@ impl LayerPrototype for LayerReshape {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         assert_eq!( input_shape.product(), self.shape.product() );
         self.shape.clone()
+    }
+
+    fn weight_count( &self, _: &Shape ) -> usize {
+        0
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct LayerShift {
+    pub(crate) name: Name,
+    pub(crate) values: Arc< Vec< f32 > >
+}
+
+impl Eq for LayerShift {}
+impl fmt::Debug for LayerShift {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        fmt.debug_struct( "LayerShift" )
+            .field( "name", &self.name )
+            .field( "values", &SliceDebug( &self.values ) )
+            .finish()
+    }
+}
+
+impl LayerShift {
+    pub fn new( values: Vec< f32 > ) -> Self {
+        Self {
+            name: Name::new_unique(),
+            values: Arc::new( values )
+        }
+    }
+}
+
+impl LayerPrototype for LayerShift {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+
+    fn output_shape( &self, input_shape: &Shape ) -> Shape {
+        input_shape.clone()
     }
 
     fn weight_count( &self, _: &Shape ) -> usize {
@@ -386,7 +474,9 @@ pub enum Layer {
     Dropout( LayerDropout ),
     IntoCategory( LayerIntoCategory ),
     MaxPooling( LayerMaxPooling ),
+    Multiply( LayerMultiply ),
     Reshape( LayerReshape ),
+    Shift( LayerShift ),
     Softmax( LayerSoftmax )
 }
 
@@ -470,7 +560,9 @@ layer_boilerplate!(
     Layer::Dropout( LayerDropout )
     Layer::IntoCategory( LayerIntoCategory )
     Layer::MaxPooling( LayerMaxPooling )
+    Layer::Multiply( LayerMultiply )
     Layer::Reshape( LayerReshape )
+    Layer::Shift( LayerShift )
     Layer::Softmax( LayerSoftmax )
 );
 

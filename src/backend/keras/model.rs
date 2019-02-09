@@ -10,6 +10,7 @@ use {
         types::{
             PyDict,
             PyList,
+            PyObjectRef,
             PyTuple
         }
     },
@@ -69,8 +70,10 @@ use {
                 LayerConvolution,
                 LayerDense,
                 LayerDropout,
+                LayerMultiply,
                 LayerPrototype,
                 LayerReshape,
+                LayerShift,
                 LayerSoftmax
             },
             loss::{
@@ -149,6 +152,19 @@ pub(crate) fn ortho_weights( shape: Shape ) -> RawArraySource {
     })
 }
 
+fn constant_layer< 'a >( py: Python< 'a >, input_shape: &Shape, values: &[f32] ) -> &'a PyObjectRef {
+    let mut array = TypedPyArray::< f32 >::new( py, input_shape.prepend( 1 ) );
+    array.as_slice_mut().copy_from_slice( values );
+
+    let tf_ns = py.import( "tensorflow" ).unwrap_py( py );
+    let keras_ns = tf_ns.getattr( "keras" ).unwrap_py( py );
+    let layers_ns = keras_ns.getattr( "layers" ).unwrap_py( py );
+    let tensor = tf_ns.getattr( "constant" ).unwrap_py( py ).call( (array.as_py_obj(),), None ).unwrap_py( py );
+    let kwargs = PyDict::new( py );
+    kwargs.set_item( "tensor", tensor ).unwrap_py( py );
+    layers_ns.getattr( "Input" ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py )
+}
+
 impl ModelInstance {
     pub fn new( ctx: &Context, model: Model ) -> Result< ModelInstance, ModelCompilationError > {
         Self::compile( ctx, model, None )
@@ -170,6 +186,7 @@ impl ModelInstance {
                 keras_ns.getattr( "Input" ).unwrap().call( (), Some( kwargs ) ).unwrap()
             };
 
+            let model_inputs = PyList::new( py, &[initial_layer.clone()] );
             let mut last_layer = initial_layer.clone();
 
             let model_layer_count = model.layers.len();
@@ -301,6 +318,22 @@ impl ModelInstance {
                         let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
                         last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
+                    ref layer @ Layer::Multiply( .. ) |
+                    ref layer @ Layer::Shift( .. ) => {
+                        let (kind, name, values) = match layer {
+                            Layer::Multiply( LayerMultiply { name, values } ) => ("Multiply", name, values),
+                            Layer::Shift( LayerShift { name, values } ) => ("Add", name, values),
+                            _ => unreachable!()
+                        };
+
+                        let extra_layer = constant_layer( py, &input_shape, &values );
+                        model_inputs.append( extra_layer ).unwrap_py( py );
+
+                        kwargs.set_item( "name", name.to_string() ).unwrap_py( py );
+                        let layer = layers_ns.getattr( kind ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py );
+                        let inputs = PyList::new( py, &[last_layer, extra_layer] );
+                        last_layer = layer.call( (inputs,), None ).unwrap_py( py );
+                    },
                     Layer::Softmax( LayerSoftmax { name } ) => {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
@@ -322,7 +355,7 @@ impl ModelInstance {
             }
 
             let kwargs = PyDict::new( py );
-            kwargs.set_item( "inputs", initial_layer ).unwrap();
+            kwargs.set_item( "inputs", model_inputs ).unwrap();
             kwargs.set_item( "outputs", last_layer ).unwrap();
             let model_obj = keras_ns.getattr( "Model" ).unwrap().call( (), Some( kwargs ) )
                 .map_err( |err| py_err( py, err ) ).unwrap();
@@ -459,7 +492,9 @@ impl ModelInstance {
             Layer::Dropout( _ ) |
             Layer::IntoCategory( _ ) |
             Layer::MaxPooling( _ ) |
+            Layer::Multiply( _ ) |
             Layer::Reshape( _ ) |
+            Layer::Shift( _ ) |
             Layer::Softmax( _ )
                 => unreachable!()
         };
