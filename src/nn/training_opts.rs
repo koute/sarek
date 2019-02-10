@@ -3,7 +3,7 @@ use {
         nn::{
             optimizers::{
                 Optimizer,
-                OptimizerAdam
+                OptimizerNadam
             }
         }
     }
@@ -19,7 +19,7 @@ pub struct TrainingOpts {
 impl TrainingOpts {
     pub fn new() -> Self {
         TrainingOpts {
-            optimizer: OptimizerAdam::new().into(),
+            optimizer: OptimizerNadam::new().into(),
             batch_size: None,
             pretrain_weights: true,
             normalize_inputs: true

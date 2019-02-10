@@ -21,14 +21,14 @@ impl OptimizerSGD {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct OptimizerAdam {
+pub struct OptimizerNadam {
     pub(crate) learning_rate: decorum::Ordered< f32 >
 }
 
-impl OptimizerAdam {
-    pub fn new() -> OptimizerAdam {
-        OptimizerAdam {
-            learning_rate: 0.001.into()
+impl OptimizerNadam {
+    pub fn new() -> OptimizerNadam {
+        OptimizerNadam {
+            learning_rate: 0.00225.into()
         }
     }
 
@@ -42,7 +42,7 @@ impl OptimizerAdam {
 #[non_exhaustive]
 pub enum Optimizer {
     SGD( OptimizerSGD ),
-    Adam( OptimizerAdam )
+    Nadam( OptimizerNadam )
 }
 
 impl From< OptimizerSGD > for Optimizer {
@@ -52,9 +52,9 @@ impl From< OptimizerSGD > for Optimizer {
     }
 }
 
-impl From< OptimizerAdam > for Optimizer {
+impl From< OptimizerNadam > for Optimizer {
     #[inline]
-    fn from( optimizer: OptimizerAdam ) -> Self {
-        Optimizer::Adam( optimizer )
+    fn from( optimizer: OptimizerNadam ) -> Self {
+        Optimizer::Nadam( optimizer )
     }
 }

@@ -84,8 +84,8 @@ use {
             },
             optimizers::{
                 Optimizer,
-                OptimizerAdam,
-                OptimizerSGD
+                OptimizerSGD,
+                OptimizerNadam
             },
             training_opts::{
                 TrainingOpts
@@ -370,11 +370,11 @@ impl ModelInstance {
                             kwargs.set_item( "lr", learning_rate ).unwrap();
                             optimizers_ns.getattr( "SGD" ).unwrap().call( (), Some( kwargs ) ).unwrap()
                         },
-                        Optimizer::Adam( OptimizerAdam { learning_rate } ) => {
+                        Optimizer::Nadam( OptimizerNadam { learning_rate } ) => {
                             let kwargs = PyDict::new( py );
                             let learning_rate: f32 = learning_rate.into();
                             kwargs.set_item( "lr", learning_rate ).unwrap();
-                            optimizers_ns.getattr( "Adam" ).unwrap().call( (), Some( kwargs ) ).unwrap()
+                            optimizers_ns.getattr( "Nadam" ).unwrap().call( (), Some( kwargs ) ).unwrap()
                         }
                     };
                     compile_kwargs.set_item( "optimizer", optimizer ).unwrap();

@@ -34,7 +34,7 @@ pub mod optimizers {
     pub use crate::{
         nn::{
             optimizers::{
-                OptimizerAdam,
+                OptimizerNadam,
                 OptimizerSGD
             }
         }
