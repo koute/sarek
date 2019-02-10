@@ -128,30 +128,6 @@ impl fmt::Display for SetWeightsError {
 impl Error for ModelCompilationError {}
 impl Error for SetWeightsError {}
 
-// TODO: Replace this with pure Rust code.
-pub(crate) fn ortho_weights( shape: Shape ) -> RawArraySource {
-    Context::gil( move |py| {
-        let code = concat!(
-            "flat_shape = (shape[0], np.prod(shape[1:]))\n",
-            "a = np.random.standard_normal(flat_shape)\n",
-            "u, _, v = np.linalg.svd(a, full_matrices=False)\n",
-            "q = u if u.shape == flat_shape else v\n",
-            "q = q.reshape(shape)\n",
-            "q = q.astype('float32')\n",
-            "q"
-        );
-        let shape = PyTuple::new( py, &shape );
-        let args = PyDict::new( py );
-        let np = py.import( "numpy" ).unwrap();
-        args.set_item( "np", np ).unwrap();
-        args.set_item( "shape", shape.to_object( py ) ).unwrap();
-        py.run( code, None, Some( args ) ).map_err( |err| py_err( py, err ) ).unwrap();
-        let result = args.get_item( "q" ).unwrap();
-        let result = unsafe { PyArray::from_object_unchecked( py, result.to_object( py ) ) };
-        result.into_raw_array()
-    })
-}
-
 fn constant_layer< 'a >( py: Python< 'a >, input_shape: &Shape, values: &[f32] ) -> &'a PyObjectRef {
     let mut array = TypedPyArray::< f32 >::new( py, input_shape.prepend( 1 ) );
     array.as_slice_mut().copy_from_slice( values );

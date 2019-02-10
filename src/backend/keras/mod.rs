@@ -20,9 +20,3 @@ pub use self::{
         Trainer
     }
 };
-
-pub(crate) use self::{
-    model::{
-        ortho_weights
-    }
-};

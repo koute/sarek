@@ -5,6 +5,7 @@ pub mod data_type;
 pub mod indices;
 pub mod into_range;
 pub mod name;
+pub mod ortho_generator;
 pub mod type_cast_error;
 pub mod raw_array_source;
 pub mod shape;
