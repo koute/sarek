@@ -63,7 +63,7 @@ fn test_calculate_variance() {
 fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I, weights: &[f32] )
     -> Result< RawArraySource, InitializeWeightsError >
     where L: Into< Layer >,
-            I: DataSource + Send + Sync
+          I: DataSource + Send + Sync
 {
     let layer_name = Name::new_unique();
     let mut layer = layer.into();
