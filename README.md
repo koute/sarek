@@ -20,7 +20,7 @@ Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if poss
 ## Tentative short-term roadmap
 
    * [X] Support TensorFlow Keras as a backend (battle tested, but very heavy)
-      * [ ] Support basic layer types:
+      * [X] Support basic layer types:
          * [X] Fully connected
          * [X] Dropout
          * [X] Activation
@@ -31,21 +31,25 @@ Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if poss
             * [X] ELU
          * [X] Softmax
          * [X] Convolutional
-         * [X] Pooling
-         * [ ] Batch normalization (maybe)
-         * [ ] RNN (maybe)
+         * [X] Max pooling
    * [X] Add a MNIST example
-   * [X] Add LSUV weight initialization
-      * [ ] Replace the random orthogonal matrix generator with a pure Rust one
+   * [X] Add a CIFAR-10 example
+      * [ ] Train it to a reasonable accuracy
+   * [X] Add LSUV-like weight initialization
+      * [X] Replace the random orthogonal matrix generator with a pure Rust one
+   * [X] Add automatic input normalization (zero mean, unit variance)
    * [ ] Add a native backend (reimplement the compute parts using pure Rust code)
       * [ ] Use multiple threads
       * [ ] Use SIMD
    * [ ] Make the Python + TensorFlow dependency optional (compile time)
-   * [ ] Make the Python + TensorFlow dependency optional (runtime, so that the user doesn't need libpython3.so)
    * [ ] Add full API documentation and add `#![deny(missing_docs)]`
 
 ## Long term roadmap
 
+   * Support more layer types:
+      * [ ] Batch normalization (maybe)
+      * [ ] RNN (maybe)
+   * [ ] Make the Python + TensorFlow dependency optional (runtime, so that the user doesn't need libpython3.so)
    * Add other backends:
       * [ ] Figure out a compute abstraction:
          * a) Define a custom Rust-like compute language and a source-level translator
