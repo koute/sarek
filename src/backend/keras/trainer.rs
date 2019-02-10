@@ -205,6 +205,18 @@ impl< I, O > Trainer< I, O >
     pub fn new_with_opts( ctx: &Context, mut model: Model, data_set: DataSet< I, O >, training_opts: TrainingOpts )
         -> Result< Self, TrainerInitializationError >
     {
+        let total_weight_count: usize = model.layers.iter()
+            .scan( model.input_shape(), |input_shape, layer| {
+                use crate::nn::layers::LayerPrototype;
+                let weight_count = layer.weight_count( &input_shape );
+                let output_shape = layer.output_shape( &input_shape );
+                *input_shape = output_shape;
+                Some( weight_count )
+            })
+            .sum();
+
+        info!( "Creating a trainer for a model with {} weights...", total_weight_count );
+
         let input_shape = model.input_shape();
         assert_eq!(
             data_set.input_shape(),
