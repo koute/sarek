@@ -45,7 +45,7 @@ impl LayerActivation {
     pub fn new() -> LayerActivation {
         LayerActivation {
             name: Name::new_unique(),
-            activation: Activation::ReLU
+            activation: Activation::ELU
         }
     }
 
