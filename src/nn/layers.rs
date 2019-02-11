@@ -31,6 +31,13 @@ use {
     }
 };
 
+fn check_for_invalid_weights( weights: &[f32] ) {
+    assert!(
+        !weights.iter().cloned().any( |value| value.is_nan() || value.is_infinite() ),
+        "Weights contain either a NaN or an Inf"
+    );
+}
+
 #[derive(Clone, PartialEq)]
 pub struct Weights( Arc< Vec< f32 > > );
 
@@ -127,11 +134,7 @@ impl LayerConvolution {
     }
 
     pub fn set_weights( &mut self, weights: Vec< f32 > ) -> &mut Self {
-        assert!(
-            !weights.iter().cloned().any( |value| value.is_nan() || value.is_infinite() ),
-            "Weights contain either a NaN or an Inf"
-        );
-
+        check_for_invalid_weights( &weights );
         self.weights = Some( weights.into() );
         self
     }
@@ -170,14 +173,16 @@ impl LayerPrototype for LayerConvolution {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LayerDense {
     pub(crate) name: Name,
-    pub(crate) size: usize
+    pub(crate) size: usize,
+    pub(crate) weights: Option< Weights >
 }
 
 impl LayerDense {
     pub fn new( size: usize ) -> LayerDense {
         LayerDense {
             name: Name::new_unique(),
-            size
+            size,
+            weights: None
         }
     }
 
@@ -187,6 +192,12 @@ impl LayerDense {
 
     pub fn set_size( &mut self, value: usize ) -> &mut Self {
         self.size = value;
+        self
+    }
+
+    pub fn set_weights( &mut self, weights: Vec< f32 > ) -> &mut Self {
+        check_for_invalid_weights( &weights );
+        self.weights = Some( weights.into() );
         self
     }
 }

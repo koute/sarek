@@ -152,6 +152,8 @@ impl ModelInstance {
             let keras_ns = tf_ns.getattr( "keras" ).unwrap();
             let layers_ns = keras_ns.getattr( "layers" ).unwrap();
             let optimizers_ns = keras_ns.getattr( "optimizers" ).unwrap();
+            let initializers_ns = keras_ns.getattr( "initializers" ).unwrap();
+            let constant = initializers_ns.getattr( "constant" ).unwrap();
             let is_trainable = training_opts.is_some();
             let mut output_kind = OutputKind::Regression;
             let mut input_shape = model.input_shape();
@@ -211,8 +213,6 @@ impl ModelInstance {
                             let (bias_array, weight_array) =
                                 Self::weights_into_arrays_for_convolutional_layer( py, &input_shape, &layer, &weights );
 
-                            let initializers_ns = keras_ns.getattr( "initializers" ).unwrap();
-                            let constant = initializers_ns.getattr( "constant" ).unwrap();
                             let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
                             let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
 
@@ -231,7 +231,7 @@ impl ModelInstance {
                             last_layer = layer_obj.call( (last_layer,), None ).unwrap();
                         }
                     },
-                    Layer::Dense( LayerDense { name, size } ) => {
+                    Layer::Dense( layer ) => {
                         {
                             // Dense layers expect a one dimensional input.
                             let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), Some( kwargs ) ).unwrap();
@@ -240,9 +240,20 @@ impl ModelInstance {
                             kwargs = PyDict::new( py );
                         }
 
-                        kwargs.set_item( "name", name.to_string() ).unwrap();
+                        if let Some( weights ) = layer.weights.take() {
+                            let (bias_array, weight_array) =
+                                Self::weights_into_arrays_for_dense_layer( py, &input_shape, &layer, &weights );
+
+                            let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
+                            let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
+
+                            kwargs.set_item( "bias_initializer", bias_array ).unwrap();
+                            kwargs.set_item( "kernel_initializer", weight_array ).unwrap();
+                        }
+
+                        kwargs.set_item( "name", layer.name.to_string() ).unwrap();
                         kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        let layer = layers_ns.getattr( "Dense" ).unwrap().call( (*size,), Some( kwargs ) ).unwrap();
+                        let layer = layers_ns.getattr( "Dense" ).unwrap().call( (layer.size,), Some( kwargs ) ).unwrap();
                         last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
                     Layer::Dropout( LayerDropout { name, rate } ) => {
@@ -443,6 +454,22 @@ impl ModelInstance {
         (bias_array, weight_array)
     }
 
+    fn weights_into_arrays_for_dense_layer(
+        py: Python,
+        input_shape: &Shape,
+        layer: &LayerDense,
+        weights: &[f32]
+    ) -> (TypedPyArray< f32 >, TypedPyArray< f32 >) {
+        let bias_count = layer.size;
+
+        let mut weight_array = TypedPyArray::< f32 >::new( py, Shape::new_2d( input_shape.product(), layer.size ) );
+        let mut bias_array = TypedPyArray::< f32 >::new( py, Shape::new_1d( bias_count ) );
+        weight_array.as_slice_mut().copy_from_slice( &weights[ bias_count.. ] );
+        bias_array.as_slice_mut().copy_from_slice( &weights[ ..bias_count ] );
+
+        (bias_array, weight_array)
+    }
+
     fn set_weights_for_layer( &self, py: Python, input_shape: &Shape, layer: &Layer, weights: &[f32] ) {
         let weights = match layer {
             Layer::Convolution( layer ) => {
@@ -453,13 +480,8 @@ impl ModelInstance {
                 list
             },
             Layer::Dense( layer ) => {
-                let bias_count = layer.size;
-
+                let (bias_array, weight_array) = Self::weights_into_arrays_for_dense_layer( py, input_shape, layer, weights );
                 let list = PyList::empty( py );
-                let mut weight_array = TypedPyArray::< f32 >::new( py, Shape::new_2d( input_shape.product(), layer.size ) );
-                let mut bias_array = TypedPyArray::< f32 >::new( py, Shape::new_1d( bias_count ) );
-                weight_array.as_slice_mut().copy_from_slice( &weights[ bias_count.. ] );
-                bias_array.as_slice_mut().copy_from_slice( &weights[ ..bias_count ] );
                 list.append( weight_array ).unwrap();
                 list.append( bias_array ).unwrap();
                 list
