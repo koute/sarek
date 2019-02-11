@@ -2,6 +2,9 @@ use {
     std::{
         fmt,
         iter,
+        ops::{
+            Deref
+        },
         slice,
         sync::{
             Arc
@@ -27,6 +30,29 @@ use {
         }
     }
 };
+
+#[derive(Clone, PartialEq)]
+pub struct Weights( Arc< Vec< f32 > > );
+
+impl Deref for Weights {
+    type Target = [f32];
+    fn deref( &self ) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Eq for Weights {}
+impl fmt::Debug for Weights {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        write!( fmt, "{:?}", SliceDebug( &self ) )
+    }
+}
+
+impl From< Vec< f32 > > for Weights {
+    fn from( weights: Vec< f32 > ) -> Self {
+        Weights( Arc::new( weights ) )
+    }
+}
 
 pub trait LayerPrototype {
     fn name( &self ) -> &Name;
@@ -78,24 +104,12 @@ impl LayerPrototype for LayerActivation {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LayerConvolution {
     pub(crate) name: Name,
     pub(crate) filter_count: usize,
     pub(crate) kernel_size: (usize, usize),
-    pub(crate) weights: Option< Arc< Vec< f32 > > >
-}
-
-impl Eq for LayerConvolution {}
-impl fmt::Debug for LayerConvolution {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        fmt.debug_struct( "LayerConvolution" )
-            .field( "name", &self.name )
-            .field( "filter_count", &self.filter_count )
-            .field( "kernel_size", &self.kernel_size )
-            .field( "weights", &self.weights.as_ref().map( |slice| SliceDebug( &slice ) ) )
-            .finish()
-    }
+    pub(crate) weights: Option< Weights >
 }
 
 impl LayerConvolution {
@@ -118,7 +132,7 @@ impl LayerConvolution {
             "Weights contain either a NaN or an Inf"
         );
 
-        self.weights = Some( Arc::new( weights ) );
+        self.weights = Some( weights.into() );
         self
     }
 }
