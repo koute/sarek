@@ -52,15 +52,15 @@ use {
                 LayerMultiply,
                 LayerShift
             },
-            lsuv::{
-                InitializeWeightsError,
-                initialize_weights
-            },
             model::{
                 Model
             },
             training_opts::{
                 TrainingOpts
+            },
+            weight_init::{
+                InitializeWeightsError,
+                initialize_weights
             }
         }
     }
