@@ -27,13 +27,9 @@ use {
     crate::{
         backend::{
             keras::{
-                context::{
-                    Context
-                },
-                model::{
-                    ModelCompilationError,
-                    ModelInstance
-                }
+                Context,
+                ModelCompilationError,
+                ModelInstance
             }
         },
         core::{

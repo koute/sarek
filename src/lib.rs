@@ -45,8 +45,7 @@ pub use crate::{
     backend::{
         keras::{
             Context,
-            ModelInstance,
-            Trainer
+            ModelInstance
         }
     },
     core::{
@@ -94,6 +93,9 @@ pub use crate::{
         },
         optimizers::{
             Optimizer
+        },
+        trainer::{
+            Trainer
         },
         training_opts::{
             TrainingOpts

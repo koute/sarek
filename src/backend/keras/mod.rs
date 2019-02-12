@@ -5,7 +5,6 @@ mod loss;
 mod model;
 mod py_array;
 mod py_utils;
-mod trainer;
 
 pub use self::{
     context::{
@@ -15,8 +14,5 @@ pub use self::{
         ModelCompilationError,
         ModelInstance,
         SetWeightsError
-    },
-    trainer::{
-        Trainer
     }
 };
