@@ -33,9 +33,6 @@ use {
                 model::{
                     ModelCompilationError,
                     ModelInstance
-                },
-                py_array::{
-                    PyArray
                 }
             }
         },
@@ -286,53 +283,57 @@ impl< I, O > Trainer< I, O >
             info!( "Starting training on a data set with {} elements...", self.data_set.len() );
         }
 
+        let input_data = self.data_set.input_data();
+        let output_data = self.data_set.expected_output_data();
+        let length = self.data_set.len();
+        let epoch_size = length;
+
+        let input_element_size = input_data.shape().product() * input_data.data_type().byte_size();
+        let output_element_size = output_data.shape().product() * output_data.data_type().byte_size();
+
+        let mut batch_index = 0;
+        let mut count = 0;
+        let position = &mut self.position;
+        let indexes = &mut self.indexes;
+        let rng = &mut self.rng;
+        let data_set = &self.data_set;
+        let batch_size = self.batch_size;
+
         let now = Instant::now();
-        Context::gil( move |py| {
-            let input_data = self.data_set.input_data();
-            let output_data = self.data_set.expected_output_data();
-            let length = self.data_set.len();
-            let epoch_size = length;
-
-            let mut inputs = PyArray::new( py, input_data.shape().prepend( self.batch_size ), input_data.data_type() );
-            let mut outputs = PyArray::new( py, output_data.shape().prepend( self.batch_size ), output_data.data_type() );
-
-            let input_element_size = input_data.shape().product() * input_data.data_type().byte_size();
-            let output_element_size = output_data.shape().product() * output_data.data_type().byte_size();
-
-            let mut batch_index = 0;
-            let mut loss = 0.0;
-            let mut count = 0;
+        let loss = self.model_instance.train_for_epoch( batch_size, move |inputs, outputs| {
             while count != epoch_size {
-                if self.position >= length {
-                    self.position = 0;
-                    self.shuffle();
+                if *position >= length {
+                    *position = 0;
+                    indexes.shuffle( rng );
                 }
 
-                let index = self.indexes[ self.position ];
-                self.position += 1;
+                let index = indexes[ *position ];
+                *position += 1;
                 count += 1;
 
-                self.data_set.input_data().gather_bytes_into(
+                data_set.input_data().gather_bytes_into(
                     index,
-                    &mut inputs.as_bytes_mut()[ batch_index * input_element_size..(batch_index + 1) * input_element_size ]
+                    &mut inputs[ batch_index * input_element_size..(batch_index + 1) * input_element_size ]
                 );
 
-                self.data_set.expected_output_data().gather_bytes_into(
+                data_set.expected_output_data().gather_bytes_into(
                     index,
-                    &mut outputs.as_bytes_mut()[ batch_index * output_element_size..(batch_index + 1) * output_element_size ]
+                    &mut outputs[ batch_index * output_element_size..(batch_index + 1) * output_element_size ]
                 );
 
                 batch_index += 1;
-                if batch_index == self.batch_size {
+                if batch_index == batch_size {
                     batch_index = 0;
-                    loss += self.model_instance.train_on_batch( py, &inputs, &outputs );
+                    return true;
                 }
             }
 
-            self.epoch_counter += 1;
-            info!( "Finished a training epoch #{} in {}s with a loss of {}", self.epoch_counter, now.elapsed().as_secs(), loss );
-            loss
-        })
+            false
+        });
+
+        self.epoch_counter += 1;
+        info!( "Finished a training epoch #{} in {}s with a loss of {}", self.epoch_counter, now.elapsed().as_secs(), loss );
+        loss
     }
 
     fn shuffle( &mut self ) {

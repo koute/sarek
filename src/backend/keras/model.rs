@@ -541,7 +541,7 @@ impl ModelInstance {
         SliceSource::from( Shape::new_1d( weight_count ), output )
     }
 
-    pub(crate) fn train_on_batch( &mut self, py: Python, inputs: &PyArray, outputs: &PyArray ) -> f32 {
+    fn train_on_batch( &mut self, py: Python, inputs: &PyArray, outputs: &PyArray ) -> f32 {
         debug_assert_eq!( inputs.shape().x(), outputs.shape().x() );
         let batch_size = inputs.shape().x();
 
@@ -568,6 +568,32 @@ impl ModelInstance {
         // Tensorflow averages the loss it returns over the batch size for some reason;
         // we reverse it so that the losses are more comparable when changing the batch size.
         loss * (batch_size as f32)
+    }
+
+    pub(crate) fn train_for_epoch< F >( &mut self, batch_size: usize, mut fill_data: F ) -> f32
+        where F: FnMut( &mut [u8], &mut [u8] ) -> bool + Send
+    {
+        let input_shape = self.model.input_shape();
+        let output_shape = self.model.output_shape();
+        let input_data_type = self.model.input_data_type();
+        let output_data_type = self.model.output_data_type();
+
+        Context::gil( move |py| {
+            let mut inputs = PyArray::new( py, input_shape.prepend( batch_size ), input_data_type );
+            let mut outputs = PyArray::new( py, output_shape.prepend( batch_size ), output_data_type );
+
+            let mut loss = 0.0;
+            loop {
+                let should_train = fill_data( inputs.as_bytes_mut(), outputs.as_bytes_mut() );
+                if should_train {
+                    loss += self.train_on_batch( py, &inputs, &outputs );
+                } else {
+                    break;
+                }
+            }
+
+            loss
+        })
     }
 
     pub(crate) fn predict_raw< I >( &mut self, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
