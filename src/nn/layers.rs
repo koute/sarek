@@ -51,19 +51,47 @@ impl Deref for Weights {
 impl Eq for Weights {}
 impl fmt::Debug for Weights {
     fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        write!( fmt, "{:?}", SliceDebug( &self ) )
+        write!( fmt, "{:?}", SliceDebug( &self.0 ) )
     }
 }
 
 impl From< Vec< f32 > > for Weights {
     fn from( weights: Vec< f32 > ) -> Self {
+        check_for_invalid_weights( &weights );
         Weights( Arc::new( weights ) )
+    }
+}
+
+impl< 'a > From< &'a [f32] > for Weights {
+    fn from( weights: &'a [f32] ) -> Self {
+        check_for_invalid_weights( &weights );
+        Weights( Arc::new( weights.into() ) )
+    }
+}
+
+impl Weights {
+    pub(crate) fn new() -> Self {
+        Weights( Arc::new( Vec::new() ) )
+    }
+
+    pub(crate) fn get_mut( &mut self ) -> &mut Vec< f32 > {
+        Arc::get_mut( &mut self.0 ).unwrap()
     }
 }
 
 pub trait LayerPrototype {
     fn name( &self ) -> &Name;
     fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name >;
+    fn set_weights( &mut self, weights: Weights ) -> &mut Self {
+        if weights.is_empty() {
+            return self;
+        }
+
+        panic!( "Weights passed to a layer which has no weights" );
+    }
+    fn take_weights( &mut self ) -> Option< Weights > {
+        None
+    }
     fn output_shape( &self, input_shape: &Shape ) -> Shape;
     fn weight_count( &self, input_shape: &Shape ) -> usize;
 }
@@ -132,12 +160,6 @@ impl LayerConvolution {
             weights: None
         }
     }
-
-    pub fn set_weights( &mut self, weights: Vec< f32 > ) -> &mut Self {
-        check_for_invalid_weights( &weights );
-        self.weights = Some( weights.into() );
-        self
-    }
 }
 
 impl LayerPrototype for LayerConvolution {
@@ -148,6 +170,15 @@ impl LayerPrototype for LayerConvolution {
     fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
         self.name = name.into();
         self
+    }
+
+    fn set_weights( &mut self, weights: Weights ) -> &mut Self {
+        self.weights = Some( weights );
+        self
+    }
+
+    fn take_weights( &mut self ) -> Option< Weights > {
+        self.weights.take()
     }
 
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
@@ -194,12 +225,6 @@ impl LayerDense {
         self.size = value;
         self
     }
-
-    pub fn set_weights( &mut self, weights: Vec< f32 > ) -> &mut Self {
-        check_for_invalid_weights( &weights );
-        self.weights = Some( weights.into() );
-        self
-    }
 }
 
 impl LayerPrototype for LayerDense {
@@ -210,6 +235,15 @@ impl LayerPrototype for LayerDense {
     fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
         self.name = name.into();
         self
+    }
+
+    fn set_weights( &mut self, weights: Weights ) -> &mut Self {
+        self.weights = Some( weights );
+        self
+    }
+
+    fn take_weights( &mut self ) -> Option< Weights > {
+        self.weights.take()
     }
 
     fn output_shape( &self, _: &Shape ) -> Shape {
@@ -519,6 +553,24 @@ macro_rules! layer_boilerplate {
                     $(
                         Layer::$variant( ref mut layer ) => {
                             layer.set_name( name );
+                        },
+                    )*
+                }
+
+                self
+            }
+
+            fn take_weights( &mut self ) -> Option< Weights > {
+                match *self {
+                    $( Layer::$variant( ref mut layer ) => layer.take_weights(), )*
+                }
+            }
+
+            fn set_weights( &mut self, weights: Weights ) -> &mut Self {
+                match *self {
+                    $(
+                        Layer::$variant( ref mut layer ) => {
+                            layer.set_weights( weights );
                         },
                     )*
                 }

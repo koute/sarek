@@ -12,7 +12,6 @@ use {
 pub struct TrainingOpts {
     pub(crate) optimizer: Optimizer,
     pub(crate) batch_size: Option< usize >,
-    pub(crate) pretrain_weights: bool,
     pub(crate) normalize_inputs: bool
 }
 
@@ -21,7 +20,6 @@ impl TrainingOpts {
         TrainingOpts {
             optimizer: OptimizerNadam::new().into(),
             batch_size: None,
-            pretrain_weights: true,
             normalize_inputs: true
         }
     }
@@ -38,10 +36,6 @@ impl TrainingOpts {
     pub fn set_batch_size( &mut self, batch_size: usize ) {
         assert_ne!( batch_size, 0, "The batch size cannot be zero" );
         self.batch_size = Some( batch_size );
-    }
-
-    pub fn disable_weight_pretraining( &mut self ) {
-        self.pretrain_weights = false;
     }
 
     pub fn disable_input_normalization( &mut self ) {

@@ -28,17 +28,11 @@ use {
             data_source::{
                 DataSource
             },
-            name::{
-                Name
-            },
             raw_array_source::{
                 RawArraySource
             },
             ortho_generator::{
                 OrthogonalGenerator
-            },
-            shape::{
-                Shape
             }
         },
         nn::{
@@ -46,7 +40,8 @@ use {
                 Layer,
                 LayerConvolution,
                 LayerDense,
-                LayerPrototype
+                LayerPrototype,
+                Weights
             },
             model::{
                 Model
@@ -71,25 +66,13 @@ fn test_calculate_variance() {
     assert_eq!( variance, 8.25 );
 }
 
-fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I, weights: &[f32] )
+fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I )
     -> Result< RawArraySource, InitializeWeightsError >
     where L: Into< Layer >,
           I: DataSource + Send + Sync
 {
-    let layer_name = Name::new_unique();
-    let mut layer = layer.into();
-    layer.set_name( layer_name.clone() );
-
-    let input_shape = input_data.shape();
-    let weight_count = layer.weight_count( &input_shape );
-    assert_eq!( weight_count, weights.len() );
-
     let model = Model::new_sequential( input_data.shape(), layer );
     let mut instance = ModelInstance::compile( ctx, model, None )?;
-    if !weights.is_empty() {
-        instance.set_weights( layer_name, weights )?;
-    }
-
     let output = instance.predict_raw( &input_data );
     Ok( output )
 }
@@ -125,96 +108,103 @@ impl fmt::Display for InitializeWeightsError {
 
 impl Error for InitializeWeightsError {}
 
-pub fn initialize_weights< I >
-(
-    ctx: &Context,
-    rng: &mut RngCore,
-    model_instance: &mut ModelInstance,
-    input_data: I
-) -> Result< (), InitializeWeightsError >
-    where I: DataSource + Send + Sync
-{
-    info!( "Starting weight initialization..." );
+fn get_initialization_depth( model: &Model ) -> usize {
+    let mut count = 0;
+    let mut input_shape = model.input_shape();
+    for (layer_index, layer) in model.layers.iter().enumerate() {
+        let weight_count = layer.weight_count( &input_shape );
+        input_shape = layer.output_shape( &input_shape );
 
-    let batch_size = std::cmp::min( 128, input_data.len() );
-    let mut indexes: Vec< _ > = (0..input_data.len()).into_iter().collect();
-    indexes.shuffle( rng );
-    indexes.truncate( batch_size );
+        if weight_count != 0 {
+            let has_preset_weights = match layer {
+                Layer::Dense( LayerDense { weights, .. } ) => weights.is_some(),
+                Layer::Convolution( LayerConvolution { weights, .. } ) => weights.is_some(),
+                _ => false
+            };
 
-    let mut input_shape = model_instance.input_shape();
-    let mut input_buffer = RawArraySource::new_uninitialized( batch_size, input_shape.clone(), input_data.data_type() );
-    input_data.gather_bytes_into(
-        &indexes,
-        input_buffer.as_bytes_mut()
-    );
-
-    let layers = model_instance.model().layers.clone();
-    let layer_count = {
-        let mut count = 0;
-        let mut input_shape = input_shape.clone();
-        for (layer_index, layer) in layers.iter().enumerate() {
-            let weight_count = layer.weight_count( &input_shape );
-            input_shape = layer.output_shape( &input_shape );
-
-            if weight_count != 0 {
+            if !has_preset_weights {
                 count = layer_index + 1;
             }
         }
-        count
-    };
+    }
+    count
+}
 
-    let mut weights = Vec::new();
-    for (layer_index, layer) in layers.iter().enumerate().take( layer_count ) {
-        let weight_count = layer.weight_count( &input_shape );
+fn generate_normal_weights( rng: &mut RngCore, bias_count: usize, weight_count: usize, n: usize ) -> Weights {
+    let factor = 2.0_f32;
+    let n = n as f32;
+    let stddev = (factor / n).sqrt();
+    let dist = rand::distributions::Normal::new( 0.0, stddev as f64 );
+
+    let mut weights = Weights::new();
+    weights.get_mut().extend( (0..bias_count).map( |_| 0.0 ) );
+    weights.get_mut().extend( (bias_count..weight_count).map( |_| dist.sample( rng ) as f32 ) );
+
+    weights
+}
+
+fn generate_initial_weights( depth: usize, rng: &mut RngCore, model: &mut Model ) -> Vec< usize > {
+    info!( "Populating the model with weights..." );
+
+    let mut initialized_layers = Vec::new();
+    let mut input_shape = model.input_shape();
+    for (layer_index, layer) in model.layers.iter_mut().take( depth ).enumerate() {
         let output_shape = layer.output_shape( &input_shape );
+        let weight_count = layer.weight_count( &input_shape );
 
-        if weight_count == 0 {
-            info!( "Layer #{}: no weights; only running prediction", layer_index + 1 );
-            let output_buffer = predict_layer( ctx, layer, input_buffer, &[] )?;
+        let generated_weights = match *layer {
+            Layer::Dense( ref mut layer ) => {
+                let bias_count = layer.size;
 
-            if log_enabled!( log::Level::Debug ) {
-                let (mean, variance) = calculate_mean_and_variance( output_buffer.as_slice().expect( "expected an f32 output" ) );
-                debug!( "Layer #{} output: variance = {}, mean = {}", layer_index + 1, variance, mean );
+                let orthogonal_init = true;
+                if orthogonal_init {
+                    let mut weights = Weights::new();
+                    weights.get_mut().extend( (0..bias_count).map( |_| 0.0 ) );
+
+                    let mut generator = OrthogonalGenerator::new();
+                    generator.generate_into( layer.size, input_shape.product(), rng, weights.get_mut() );
+                    Some( weights )
+                } else {
+                    let n = input_shape.product();
+                    let weights = generate_normal_weights( rng, bias_count, weight_count, n );
+                    Some( weights )
+                }
+            },
+            Layer::Convolution( ref layer ) => {
+                let bias_count = layer.filter_count;
+                let n = output_shape.x() * output_shape.y() * input_shape.z();
+                let weights = generate_normal_weights( rng, bias_count, weight_count, n );
+                Some( weights )
+            },
+            _ => {
+                assert_eq!( weight_count, 0 );
+                None
             }
+        };
 
-            input_shape = output_shape;
-            input_buffer = output_buffer;
-            continue;
+        if let Some( generated_weights ) = generated_weights {
+            layer.set_weights( generated_weights );
+            initialized_layers.push( layer_index );
         }
-
-        weights.clear();
-        let output_buffer = match layer {
-            Layer::Dense( layer ) => {
-                info!( "Layer #{}: initializing weights for a dense layer", layer_index + 1 );
-                initialize_dense_weights( ctx, layer, &layers, layer_index, rng, &input_shape, &input_buffer, &mut weights )
-            },
-            Layer::Convolution( layer ) => {
-                info!( "Layer #{}: initializing weights for a convolution layer", layer_index + 1 );
-                initialize_convolutional_weights( ctx, layer, layer_index, rng, &input_shape, &output_shape, &input_buffer, &mut weights )
-            },
-            _ => unreachable!()
-        }?;
-
-        model_instance.set_weights( layer.name(), &weights )?;
-        input_buffer = output_buffer;
         input_shape = output_shape;
     }
 
-    info!( "Initialized weights of the model!" );
-    Ok(())
+    initialized_layers.reverse();
+    initialized_layers
 }
 
-fn normalize_output(
+fn normalize_layer_output< T >(
     ctx: &Context,
-    layer: &Layer,
+    layer: &mut T,
     layer_index: usize,
     target_variance: f32,
     target_mean: f32,
     bias_count: usize,
-    weights: &mut Vec< f32 >,
     input_buffer: &RawArraySource,
     mut output_buffer: RawArraySource
-) -> Result< RawArraySource, InitializeWeightsError > {
+) -> Result< RawArraySource, InitializeWeightsError >
+    where T: LayerPrototype + Into< Layer > + Clone
+{
     let iteration_limit = 10;
     let allowed_margin = 0.01;
 
@@ -227,113 +217,131 @@ fn normalize_output(
         }
 
         let divisor = variance.sqrt() / target_variance.sqrt();
-        for weight in weights[ bias_count.. ].iter_mut() {
+        let mut weights = layer.take_weights().unwrap();
+        for weight in weights.get_mut()[ bias_count.. ].iter_mut() {
             *weight /= divisor;
         }
+        layer.set_weights( weights );
 
-        output_buffer = predict_layer( ctx, layer.clone(), &input_buffer, &weights )?;
+        output_buffer = predict_layer( ctx, layer.clone(), &input_buffer )?;
         let (new_mean, new_variance) = calculate_mean_and_variance( output_buffer.as_slice().expect( "expected an f32 output" ) );
 
         mean = new_mean;
         variance = new_variance;
     }
 
-    for weight in weights[ ..bias_count ].iter_mut() {
+    let mut weights = layer.take_weights().unwrap();
+    for weight in weights.get_mut()[ ..bias_count ].iter_mut() {
         *weight -= mean - target_mean;
     }
+    layer.set_weights( weights );
 
-    output_buffer = predict_layer( ctx, layer.clone(), &input_buffer, &weights )?;
+    output_buffer = predict_layer( ctx, layer.clone(), &input_buffer )?;
     Ok( output_buffer )
 }
 
-fn initialize_dense_weights(
+pub fn initialize_weights< I >
+(
     ctx: &Context,
-    layer: &LayerDense,
-    layers: &[Layer],
-    layer_index: usize,
     rng: &mut RngCore,
-    input_shape: &Shape,
-    input_buffer: &RawArraySource,
-    weights: &mut Vec< f32 >
-) -> Result< RawArraySource, InitializeWeightsError > {
-    let weight_count = layer.weight_count( &input_shape );
-    let bias_count = layer.size;
-
-    let orthogonal_init = true;
-    if orthogonal_init {
-        weights.extend( (0..bias_count).map( |_| 0.0 ) );
-
-        let mut generator = OrthogonalGenerator::new();
-        generator.generate_into( layer.size, input_shape.product(), rng, weights );
-    } else {
-        let factor = 2.0_f32;
-        let n = input_shape.product() as f32;
-        let stddev = (factor / n).sqrt();
-        let dist = rand::distributions::Normal::new( 0.0, stddev as f64 );
-        weights.extend( (0..bias_count).map( |_| 0.0 ) );
-        weights.extend( (bias_count..weight_count).map( |_| dist.sample( rng ) as f32 ) );
+    model: &mut Model,
+    input_data: I
+) -> Result< (), InitializeWeightsError >
+    where I: DataSource + Send + Sync
+{
+    let depth = get_initialization_depth( model );
+    if depth == 0 {
+        return Ok(());
     }
 
-    let output_buffer = predict_layer( ctx, layer, input_buffer, &weights )?;
-    let next_layer_is_activation = if let Some( &Layer::Activation { .. } ) = layers.get( layer_index + 1 ) {
-        true
-    } else {
-        false
+    let mut initialized_layers = generate_initial_weights( depth, rng, model );
+
+    info!( "Normalizing layer outputs..." );
+
+    let batch_size = std::cmp::min( 128, input_data.len() );
+    let indexes = {
+        let mut indexes: Vec< _ > = (0..input_data.len()).into_iter().collect();
+        indexes.shuffle( rng );
+        indexes.truncate( batch_size );
+        indexes
     };
 
-    if !next_layer_is_activation {
-        return Ok( output_buffer );
+    let mut input_shape = model.input_shape();
+    let mut input_buffer = RawArraySource::new_uninitialized( batch_size, input_shape.clone(), input_data.data_type() );
+    input_data.gather_bytes_into(
+        &indexes,
+        input_buffer.as_bytes_mut()
+    );
+
+    for layer_index in 0..depth {
+        let layer = &mut model.layers[ layer_index ];
+
+        let weight_count = layer.weight_count( &input_shape );
+        let output_shape = layer.output_shape( &input_shape );
+
+        if initialized_layers.last().cloned() != Some( layer_index ) {
+            if weight_count == 0 {
+                info!( "Layer #{}: no weights; only running prediction", layer_index + 1 );
+            } else {
+                info!( "Layer #{}: weights already set; only running prediction", layer_index + 1 );
+            }
+
+            let output_buffer = predict_layer( ctx, layer, input_buffer )?;
+            if log_enabled!( log::Level::Debug ) {
+                let (mean, variance) = calculate_mean_and_variance( output_buffer.as_slice().expect( "expected an f32 output" ) );
+                debug!( "Layer #{} output: variance = {}, mean = {}", layer_index + 1, variance, mean );
+            }
+
+            input_buffer = output_buffer;
+            input_shape = output_shape;
+            continue;
+        }
+
+        initialized_layers.pop();
+
+        let output_buffer = predict_layer( ctx, layer.clone(), &input_buffer )?;
+        let output_buffer = match layer {
+            Layer::Dense( layer ) => {
+                info!( "Layer #{}: initializing weights for a dense layer", layer_index + 1 );
+                let bias_count = layer.size;
+                let target_variance = 0.9;
+                let target_mean = 0.02;
+
+                normalize_layer_output(
+                    ctx,
+                    layer,
+                    layer_index,
+                    target_variance,
+                    target_mean,
+                    bias_count,
+                    &input_buffer,
+                    output_buffer
+                )
+            },
+            Layer::Convolution( layer ) => {
+                info!( "Layer #{}: initializing weights for a convolution layer", layer_index + 1 );
+                let bias_count = layer.filter_count;
+                let target_variance = 1.0;
+                let target_mean = 0.01;
+
+                normalize_layer_output(
+                    ctx,
+                    layer,
+                    layer_index,
+                    target_variance,
+                    target_mean,
+                    bias_count,
+                    &input_buffer,
+                    output_buffer
+                )
+            },
+            _ => unreachable!()
+        }?;
+
+        input_buffer = output_buffer;
+        input_shape = output_shape;
     }
 
-    let target_variance = 0.9;
-    let target_mean = 0.02;
-
-    return normalize_output(
-        ctx,
-        &layer.into(),
-        layer_index,
-        target_variance,
-        target_mean,
-        bias_count,
-        weights,
-        input_buffer,
-        output_buffer
-    );
-}
-
-fn initialize_convolutional_weights(
-    ctx: &Context,
-    layer: &LayerConvolution,
-    layer_index: usize,
-    rng: &mut RngCore,
-    input_shape: &Shape,
-    output_shape: &Shape,
-    input_buffer: &RawArraySource,
-    weights: &mut Vec< f32 >
-) -> Result< RawArraySource, InitializeWeightsError > {
-    let weight_count = layer.weight_count( &input_shape );
-    let bias_count = layer.filter_count;
-
-    let factor = 2.0_f32;
-    let n = (output_shape.x() * output_shape.y() * input_shape.z()) as f32;
-    let stddev = (factor / n).sqrt();
-    let dist = rand::distributions::Normal::new( 0.0, stddev as f64 );
-    weights.extend( (0..bias_count).map( |_| 0.0 ) );
-    weights.extend( (bias_count..weight_count).map( |_| dist.sample( rng ) as f32 ) );
-
-    let output_buffer = predict_layer( ctx, layer, input_buffer, &weights )?;
-    let target_variance = 1.0;
-    let target_mean = 0.01;
-
-    return normalize_output(
-        ctx,
-        &layer.into(),
-        layer_index,
-        target_variance,
-        target_mean,
-        bias_count,
-        weights,
-        input_buffer,
-        output_buffer
-    );
+    info!( "Initialized weights of the model!" );
+    Ok(())
 }

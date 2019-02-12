@@ -245,16 +245,13 @@ impl< I, O > Trainer< I, O >
             model.layers.extend( layers.into_iter() );
         }
 
-        let batch_size = training_opts.batch_size.unwrap_or( 32 );
-        let pretrain_weights = training_opts.pretrain_weights;
-        let mut model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
         let mut rng = Pcg32::seed_from_u64( 123456 );
+        initialize_weights( ctx, &mut rng, &mut model, data_set.input_data() )?;
 
-        if pretrain_weights {
-            initialize_weights( ctx, &mut rng, &mut model_instance, data_set.input_data() )?;
-        }
-
+        let batch_size = training_opts.batch_size.unwrap_or( 32 );
+        let model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
         let length = data_set.len();
+
         let mut trainer = Trainer {
             model_instance,
             batch_size,
