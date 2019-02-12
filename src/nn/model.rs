@@ -1,6 +1,9 @@
 use {
     crate::{
         core::{
+            data_type::{
+                Type
+            },
             name::{
                 Name
             },
@@ -38,6 +41,17 @@ impl Model {
 
     pub fn input_shape( &self ) -> Shape {
         self.input_shape.clone()
+    }
+
+    pub fn input_data_type( &self ) -> Type {
+        Type::F32
+    }
+
+    pub fn output_data_type( &self ) -> Type {
+        match self.layers.last() {
+            Some( Layer::IntoCategory( .. ) ) => Type::U32,
+            _ => Type::F32
+        }
     }
 
     pub(crate) fn get_layer_and_input_shape( &self, layer_name: &Name ) -> Option< (&Layer, Shape) > {
