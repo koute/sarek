@@ -49,8 +49,12 @@ fn main() {
         LayerIntoCategory::new()
     ));
 
-    let test_data = test_data.join().unwrap();
     let mut instance = Trainer::new( &ctx, model, training_data ).unwrap();
+
+    let test_data = test_data.join().unwrap();
+    let loss = instance.test( &test_data );
+    info!( "Initial accuracy on the test set: {:.02}% (loss = {})", loss.accuracy().unwrap() * 100.0, loss.get() );
+
     for _ in 0..10 {
         instance.train();
 
