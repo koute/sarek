@@ -20,8 +20,7 @@ use {
             keras::{
                 Context,
                 ModelCompilationError,
-                ModelInstance,
-                SetWeightsError
+                ModelInstance
             }
         },
         core::{
@@ -79,8 +78,7 @@ fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I )
 
 #[derive(Debug)]
 pub enum InitializeWeightsError {
-    ModelCompilationError( ModelCompilationError ),
-    SetWeightsError( SetWeightsError )
+    ModelCompilationError( ModelCompilationError )
 }
 
 impl From< ModelCompilationError > for InitializeWeightsError {
@@ -89,17 +87,10 @@ impl From< ModelCompilationError > for InitializeWeightsError {
     }
 }
 
-impl From< SetWeightsError > for InitializeWeightsError {
-    fn from( value: SetWeightsError ) -> Self {
-        InitializeWeightsError::SetWeightsError( value )
-    }
-}
-
 impl fmt::Display for InitializeWeightsError {
     fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
         let error: &Error = match self {
-            InitializeWeightsError::ModelCompilationError( ref error ) => error,
-            InitializeWeightsError::SetWeightsError( ref error ) => error
+            InitializeWeightsError::ModelCompilationError( ref error ) => error
         };
 
         write!( fmt, "failed to initialize weights: {}", error )
