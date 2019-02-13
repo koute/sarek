@@ -3,7 +3,6 @@ use {
         error::{
             Error
         },
-        fmt,
         ops::{
             Deref,
             DerefMut
@@ -59,33 +58,12 @@ use {
     }
 };
 
-#[derive(Debug)]
+#[derive(Debug, Display, From)]
 pub enum TrainerInitializationError {
+    #[display(fmt = "failed to initialize a model for training: {}", "_0")]
     ModelCompilationError( ModelCompilationError ),
+    #[display(fmt = "failed to initialize a model for training: {}", "_0")]
     InitializeWeightsError( InitializeWeightsError )
-}
-
-impl fmt::Display for TrainerInitializationError {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        let error: &Error = match self {
-            TrainerInitializationError::ModelCompilationError( ref error ) => error,
-            TrainerInitializationError::InitializeWeightsError( ref error ) => error
-        };
-
-        write!( fmt, "failed to initialize a model for training: {}", error )
-    }
-}
-
-impl From< ModelCompilationError > for TrainerInitializationError {
-    fn from( value: ModelCompilationError ) -> Self {
-        TrainerInitializationError::ModelCompilationError( value )
-    }
-}
-
-impl From< InitializeWeightsError > for TrainerInitializationError {
-    fn from( value: InitializeWeightsError ) -> Self {
-        TrainerInitializationError::InitializeWeightsError( value )
-    }
 }
 
 impl Error for TrainerInitializationError {}

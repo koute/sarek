@@ -7,6 +7,9 @@
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::type_complexity)]
 
+#[macro_use]
+extern crate derive_more;
+
 mod backend;
 mod core;
 mod nn;

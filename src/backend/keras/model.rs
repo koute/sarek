@@ -2,8 +2,7 @@ use {
     std::{
         error::{
             Error
-        },
-        fmt
+        }
     },
     pyo3::{
         prelude::*,
@@ -107,23 +106,13 @@ pub struct ModelInstance {
     output_kind: OutputKind
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(fmt = "model compilation failed")]
 pub enum ModelCompilationError {}
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(fmt = "failed to set weights")]
 pub struct SetWeightsError(());
-
-impl fmt::Display for ModelCompilationError {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        write!( fmt, "model compilation failed" )
-    }
-}
-
-impl fmt::Display for SetWeightsError {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        write!( fmt, "failed to set weights" )
-    }
-}
 
 impl Error for ModelCompilationError {}
 impl Error for SetWeightsError {}

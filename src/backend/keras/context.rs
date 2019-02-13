@@ -32,13 +32,9 @@ pub struct Context {
     _dummy: ()
 }
 
+#[derive(Display)]
+#[display(fmt = "context creation failed: {}", "_0")]
 pub struct ContextCreationError( Box< Error + Send > );
-
-impl fmt::Display for ContextCreationError {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        fmt::Display::fmt( &self.0, fmt )
-    }
-}
 
 impl fmt::Debug for ContextCreationError {
     fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {

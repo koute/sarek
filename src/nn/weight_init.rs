@@ -12,8 +12,7 @@ use {
     std::{
         error::{
             Error
-        },
-        fmt
+        }
     },
     crate::{
         backend::{
@@ -76,25 +75,10 @@ fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I )
     Ok( output )
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display, From)]
 pub enum InitializeWeightsError {
+    #[display(fmt = "failed to initialize weights: {}", "_0")]
     ModelCompilationError( ModelCompilationError )
-}
-
-impl From< ModelCompilationError > for InitializeWeightsError {
-    fn from( value: ModelCompilationError ) -> Self {
-        InitializeWeightsError::ModelCompilationError( value )
-    }
-}
-
-impl fmt::Display for InitializeWeightsError {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        let error: &Error = match self {
-            InitializeWeightsError::ModelCompilationError( ref error ) => error
-        };
-
-        write!( fmt, "failed to initialize weights: {}", error )
-    }
 }
 
 impl Error for InitializeWeightsError {}
