@@ -75,6 +75,7 @@ fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I )
     Ok( output )
 }
 
+#[non_exhaustive]
 #[derive(Debug, Display, From)]
 pub enum InitializeWeightsError {
     #[display(fmt = "failed to initialize weights: {}", "_0")]

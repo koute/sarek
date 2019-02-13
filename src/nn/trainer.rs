@@ -58,6 +58,7 @@ use {
     }
 };
 
+#[non_exhaustive]
 #[derive(Debug, Display, From)]
 pub enum TrainerInitializationError {
     #[display(fmt = "failed to initialize a model for training: {}", "_0")]
