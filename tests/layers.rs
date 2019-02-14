@@ -111,6 +111,7 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( network_input.len(), (
         LayerDense::new( inputs.len() )
+            .set_weights( original_weights.into() )
             .set_name( "dense_layer" ),
         LayerReshape::new( input_shape ),
         layer.into()
@@ -123,7 +124,6 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
             // of our layer under test.
             let output = {
                 let mut instance = ModelInstance::new( &ctx, model.clone() ).unwrap();
-                instance.set_weights( "dense_layer", &original_weights ).unwrap();
                 instance.predict( &network_input )
             };
             let output_slice = output.to_slice::< f32 >().unwrap();
@@ -148,7 +148,6 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
             let data_set = DataSet::new( network_input, expected_outputs );
 
             let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
-            instance.set_weights( "dense_layer", &original_weights ).unwrap();
             instance.train();
 
             instance.get_weights( "dense_layer" )
@@ -158,7 +157,6 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
             let data_set = DataSet::new( network_input, expected_outputs );
 
             let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
-            instance.set_weights( "dense_layer", &original_weights ).unwrap();
             instance.train();
 
             instance.get_weights( "dense_layer" )
@@ -191,7 +189,6 @@ fn test_training< I >(
     layer: I,
     input_shape: Shape,
     inputs: &[f32],
-    weights: &[f32],
     expected_outputs: &[f32],
     learning_rate: f32,
     expected_new_weights: &[f32]
@@ -210,7 +207,6 @@ fn test_training< I >(
     let data_set = DataSet::new( &inputs, expected_outputs );
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( learning_rate ) ).unwrap();
-    instance.set_weights( &layer_name, &weights ).unwrap();
     instance.train();
 
     let new_weights = instance.get_weights( &layer_name );
@@ -254,10 +250,10 @@ fn test_layer_dense_prediction() {
     let model = Model::new_sequential( 3, (
         LayerDense::new( 2 )
             .set_name( "layer" )
+            .set_weights( WEIGHTS.into() )
     ));
 
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
-    instance.set_weights( "layer", &WEIGHTS ).unwrap();
     assert_f32_slice_eq(
         instance.get_weights( "layer" ).to_slice::< f32 >().unwrap(),
         WEIGHTS
@@ -303,6 +299,7 @@ fn test_layer_dense_simple_training_one_input_one_output() {
     let model = Model::new_sequential( INPUTS.len(), (
         LayerDense::new( OUTPUTS.len() )
             .set_name( "layer" )
+            .set_weights( WEIGHTS.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -310,7 +307,6 @@ fn test_layer_dense_simple_training_one_input_one_output() {
     let data_set = DataSet::new( inputs, expected_outputs );
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
-    instance.set_weights( "layer", &WEIGHTS ).unwrap();
 
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
@@ -366,6 +362,7 @@ fn test_layer_dense_simple_training_one_input_three_outputs() {
     let model = Model::new_sequential( 1, (
         LayerDense::new( 3 )
             .set_name( "layer" )
+            .set_weights( WEIGHTS.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -373,7 +370,6 @@ fn test_layer_dense_simple_training_one_input_three_outputs() {
     let data_set = DataSet::new( inputs, expected_outputs );
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
-    instance.set_weights( "layer", &WEIGHTS ).unwrap();
 
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
@@ -427,6 +423,7 @@ fn test_layer_dense_simple_training_three_inputs_two_outputs() {
     let model = Model::new_sequential( 3, (
         LayerDense::new( 2 )
             .set_name( "layer" )
+            .set_weights( WEIGHTS.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -434,7 +431,6 @@ fn test_layer_dense_simple_training_three_inputs_two_outputs() {
     let data_set = DataSet::new( inputs, expected_outputs );
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
-    instance.set_weights( "layer", &WEIGHTS ).unwrap();
 
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
@@ -508,9 +504,11 @@ fn test_layer_dense_simple_training_backpropagation() {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( 2, (
         LayerDense::new( 2 )
-            .set_name( "layer_1" ),
+            .set_name( "layer_1" )
+            .set_weights( WEIGHTS_1.into() ),
         LayerDense::new( 2 )
             .set_name( "layer_2" )
+            .set_weights( WEIGHTS_2.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -518,8 +516,6 @@ fn test_layer_dense_simple_training_backpropagation() {
     let data_set = DataSet::new( inputs, expected_outputs );
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
-    instance.set_weights( "layer_1", &WEIGHTS_1 ).unwrap();
-    instance.set_weights( "layer_2", &WEIGHTS_2 ).unwrap();
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
     let output = instance.predict( &inputs );
@@ -1548,10 +1544,9 @@ fn test_layer_convolution_training_input1x1_kernel1x1_filter1x() {
     ];
 
     test_training(
-        LayerConvolution::new( 1, (1, 1) ),
+        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
         (1, 1, 1).into(),
         INPUTS,
-        WEIGHTS,
         EXPECTED_OUTPUTS,
         LEARNING_RATE,
         UPDATED_WEIGHTS
@@ -1601,10 +1596,9 @@ fn test_layer_convolution_training_input2x2_kernel1x1_filter1x() {
     ];
 
     test_training(
-        LayerConvolution::new( 1, (1, 1) ),
+        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
-        WEIGHTS,
         EXPECTED_OUTPUTS,
         LEARNING_RATE,
         UPDATED_WEIGHTS
@@ -1677,10 +1671,9 @@ fn test_layer_convolution_training_input2x2_kernel1x1_filter2x() {
     ];
 
     test_training(
-        LayerConvolution::new( 2, (1, 1) ),
+        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
-        WEIGHTS,
         EXPECTED_OUTPUTS,
         LEARNING_RATE,
         UPDATED_WEIGHTS
@@ -1762,10 +1755,9 @@ fn test_layer_convolution_training_input2x2_kernel2x1_filter2x() {
     ];
 
     test_training(
-        LayerConvolution::new( 2, (2, 1) ),
+        LayerConvolution::new( 2, (2, 1) ).set_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
-        WEIGHTS,
         EXPECTED_OUTPUTS,
         LEARNING_RATE,
         UPDATED_WEIGHTS
