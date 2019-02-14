@@ -79,6 +79,7 @@ use {
                 Loss
             },
             model::{
+                InvalidModelError,
                 Model
             },
             optimizers::{
@@ -106,16 +107,45 @@ pub struct ModelInstance {
     output_kind: OutputKind
 }
 
-#[derive(Debug, Display)]
-#[display(fmt = "model compilation failed")]
-pub enum ModelCompilationError {}
+#[non_exhaustive]
+#[derive(Debug, Display, From)]
+pub enum ModelCompilationError {
+    #[display(fmt = "model compilation failed: {}", "_0")]
+    InvalidModel( InvalidModelError )
+}
+
+#[non_exhaustive]
+#[derive(Debug, Display, From)]
+pub enum SetWeightsError {
+    #[display(fmt = "failed to set weights: {}", "_0")]
+    LayerNotFound( LayerNotFoundError ),
+    #[display(fmt =
+        "failed to set weights: layer '{}' has {} weight(s), yet {} weight(s) were passed",
+        "layer_name",
+        "layer_weight_count",
+        "passed_weight_count"
+    )]
+    UnexpectedWeightCount {
+        layer_name: Name,
+        layer_weight_count: usize,
+        passed_weight_count: usize
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug, Display, From)]
+pub enum GetWeightsError {
+    #[display(fmt = "failed to get weights: {}", "_0")]
+    LayerNotFound( LayerNotFoundError )
+}
 
 #[derive(Debug, Display)]
-#[display(fmt = "failed to set weights")]
-pub struct SetWeightsError(());
+#[display(fmt = "model has no layer named '{}'", "_0")]
+pub struct LayerNotFoundError( Name );
 
 impl Error for ModelCompilationError {}
 impl Error for SetWeightsError {}
+impl Error for GetWeightsError {}
 
 fn constant_layer< 'a >( py: Python< 'a >, input_shape: &Shape, values: &[f32] ) -> &'a PyObjectRef {
     let mut array = TypedPyArray::< f32 >::new( py, input_shape.prepend( 1 ) );
@@ -136,6 +166,8 @@ impl ModelInstance {
     }
 
     pub(crate) fn compile( ctx: &Context, mut model: Model, training_opts: Option< TrainingOpts > ) -> Result< ModelInstance, ModelCompilationError > {
+        model.validate()?;
+
         Context::gil( move |py| {
             let tf_ns = py.import( "tensorflow" ).unwrap();
             let keras_ns = tf_ns.getattr( "keras" ).unwrap();
@@ -403,17 +435,17 @@ impl ModelInstance {
         let layer_name = layer_name.into();
         let (layer, input_shape) = match self.model.get_layer_and_input_shape( &layer_name ) {
             Some( result ) => result,
-            None => {
-                panic!( "Model has no layer named '{}'", layer_name );
-            }
+            None => return Err( LayerNotFoundError( layer_name ) )?
         };
 
         let weight_count = layer.weight_count( &input_shape );
-        assert_eq!(
-            weights.len(),
-            weight_count,
-            "Layer '{}' has {} weights, yet {} weights were passed", layer_name, weight_count, weights.len()
-        );
+        if weights.len() != weight_count {
+            return Err( SetWeightsError::UnexpectedWeightCount {
+                layer_name,
+                layer_weight_count: weight_count,
+                passed_weight_count: weights.len()
+            });
+        }
 
         if weight_count == 0 {
             return Ok(());
@@ -491,13 +523,11 @@ impl ModelInstance {
         layer.getattr( py, "set_weights" ).unwrap().call( py, (weights,), None ).map_err( |err| py_err( py, err ) ).unwrap();
     }
 
-    pub fn get_weights< N >( &self, layer_name: N ) -> impl ToArrayRef + DataSource where N: Into< Name > {
+    pub fn get_weights< N >( &self, layer_name: N ) -> Result< impl ToArrayRef + DataSource, GetWeightsError > where N: Into< Name > {
         let layer_name = layer_name.into();
         let (layer, input_shape) = match self.model.get_layer_and_input_shape( &layer_name ) {
             Some( result ) => result,
-            None => {
-                panic!( "Model has no layer named '{}'", layer_name );
-            }
+            None => return Err( LayerNotFoundError( layer_name ) )?
         };
 
         let weight_count = layer.weight_count( &input_shape );
@@ -527,7 +557,7 @@ impl ModelInstance {
             output.len()
         );
 
-        SliceSource::from( Shape::new_1d( weight_count ), output )
+        Ok( SliceSource::from( Shape::new_1d( weight_count ), output ) )
     }
 
     fn train_on_batch( &mut self, py: Python, inputs: &PyArray, outputs: &PyArray ) -> f32 {

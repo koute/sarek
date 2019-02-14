@@ -539,6 +539,23 @@ pub enum Layer {
     Softmax( LayerSoftmax )
 }
 
+impl Layer {
+    pub(crate) fn type_name( &self ) -> &'static str {
+        match *self {
+            Layer::Activation( .. ) => "Activation",
+            Layer::Convolution( .. ) => "Convolution",
+            Layer::Dense( .. ) => "Dense",
+            Layer::Dropout( .. ) => "Dropout",
+            Layer::IntoCategory( .. ) => "IntoCategory",
+            Layer::MaxPooling( .. ) => "MaxPooling",
+            Layer::Multiply( .. ) => "Multiply",
+            Layer::Reshape( .. ) => "Reshape",
+            Layer::Shift( .. ) => "Shift",
+            Layer::Softmax( .. ) => "Softmax"
+        }
+    }
+}
+
 macro_rules! layer_boilerplate {
     ($(Layer::$variant:ident( $name:ident ))*) => {
         impl LayerPrototype for Layer {

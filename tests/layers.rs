@@ -150,7 +150,7 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
             let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
             instance.train();
 
-            instance.get_weights( "dense_layer" )
+            instance.get_weights( "dense_layer" ).unwrap()
         },
         Kind::ExpectedOutputs( expected_outputs ) => {
             let expected_outputs = SliceSource::from( expected_outputs.len().into(), expected_outputs );
@@ -159,7 +159,7 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
             let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( LEARNING_RATE ) ).unwrap();
             instance.train();
 
-            instance.get_weights( "dense_layer" )
+            instance.get_weights( "dense_layer" ).unwrap()
         }
     };
 
@@ -209,7 +209,7 @@ fn test_training< I >(
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, training_opts( learning_rate ) ).unwrap();
     instance.train();
 
-    let new_weights = instance.get_weights( &layer_name );
+    let new_weights = instance.get_weights( &layer_name ).unwrap();
     assert_f32_slice_eq(
         new_weights.to_slice::< f32 >().unwrap(),
         expected_new_weights
@@ -255,7 +255,7 @@ fn test_layer_dense_prediction() {
 
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
     assert_f32_slice_eq(
-        instance.get_weights( "layer" ).to_slice::< f32 >().unwrap(),
+        instance.get_weights( "layer" ).unwrap().to_slice::< f32 >().unwrap(),
         WEIGHTS
     );
 
@@ -311,7 +311,7 @@ fn test_layer_dense_simple_training_one_input_one_output() {
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
 
-    let weights = instance.get_weights( "layer" );
+    let weights = instance.get_weights( "layer" ).unwrap();
     assert_f32_slice_eq(
         weights.to_slice::< f32 >().unwrap(),
         UPDATED_WEIGHTS
@@ -374,7 +374,7 @@ fn test_layer_dense_simple_training_one_input_three_outputs() {
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
 
-    let weights = instance.get_weights( "layer" );
+    let weights = instance.get_weights( "layer" ).unwrap();
     assert_f32_slice_eq(
         weights.to_slice::< f32 >().unwrap(),
         UPDATED_WEIGHTS
@@ -435,7 +435,7 @@ fn test_layer_dense_simple_training_three_inputs_two_outputs() {
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
 
-    let weights = instance.get_weights( "layer" );
+    let weights = instance.get_weights( "layer" ).unwrap();
     assert_f32_slice_eq(
         weights.to_slice::< f32 >().unwrap(),
         UPDATED_WEIGHTS
@@ -527,13 +527,13 @@ fn test_layer_dense_simple_training_backpropagation() {
     let loss = instance.train();
     assert_f32_eq( loss, LOSS );
 
-    let weights_2 = instance.get_weights( "layer_2" );
+    let weights_2 = instance.get_weights( "layer_2" ).unwrap();
     assert_f32_slice_eq(
         weights_2.to_slice::< f32 >().unwrap(),
         UPDATED_WEIGHTS_2
     );
 
-    let weights_1 = instance.get_weights( "layer_1" );
+    let weights_1 = instance.get_weights( "layer_1" ).unwrap();
     assert_f32_slice_eq(
         weights_1.to_slice::< f32 >().unwrap(),
         UPDATED_WEIGHTS_1
