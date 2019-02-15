@@ -89,6 +89,12 @@ pub trait ToIndices {
     fn to_indices( &self, container_length: usize ) -> Indices;
 }
 
+impl ToIndices for Vec< usize > {
+    fn to_indices( &self, _: usize ) -> Indices {
+        Indices::Disjoint { offset: 0, indices: &self }
+    }
+}
+
 impl< 'a > ToIndices for &'a Vec< usize > {
     fn to_indices( &self, _: usize ) -> Indices {
         Indices::Disjoint { offset: 0, indices: &self }
