@@ -107,6 +107,12 @@ impl< 'a > ToIndices for &'a [usize] {
     }
 }
 
+impl< 'a > ToIndices for &'a dyn ToIndices {
+    fn to_indices( &self, container_length: usize ) -> Indices {
+        (*self).to_indices( container_length )
+    }
+}
+
 macro_rules! impl_for {
     ($($target_ty:ty),*) => {
         $(
