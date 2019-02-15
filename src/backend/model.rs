@@ -18,7 +18,8 @@ use {
                 DataSet
             },
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceExt
             },
             data_type::{
                 Type,

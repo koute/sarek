@@ -51,7 +51,7 @@ impl< S > DataSource for SplitDataSource< S > where S: DataSource {
         self.range.len()
     }
 
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
         let extra_offset = self.range.start;
         let indices = indices.to_indices( self.len() );
         let indices = match indices {
@@ -72,6 +72,6 @@ impl< S > DataSource for SplitDataSource< S > where S: DataSource {
             }
         };
 
-        self.inner.gather_bytes_into( ReusedIndices( indices ), output )
+        self.inner.raw_gather_bytes_into( &ReusedIndices( indices ), output )
     }
 }

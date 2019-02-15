@@ -39,7 +39,8 @@ use {
                 ToArrayRef
             },
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceExt
             },
             raw_array_source::{
                 RawArraySource

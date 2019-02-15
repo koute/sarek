@@ -34,7 +34,8 @@ use {
                 DataSet
             },
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceExt
             }
         },
         nn::{

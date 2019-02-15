@@ -24,7 +24,7 @@ use {
 };
 
 /// A source of data.
-pub trait DataSource: Sized {
+pub trait DataSource {
     /// The basic type of which the data is composed of.
     fn data_type( &self ) -> Type;
 
@@ -40,22 +40,30 @@ pub trait DataSource: Sized {
     /// of a single element, is not properly aligned for the underlying data type
     /// or if its size doesn't exactly match the sum of the byte sizes of the elements
     /// which it is supposed to copy to the `output`.
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices;
-
-    /// Copies data to `output` from `indices`.
-    ///
-    /// Will panic if the `data_type` of this data source doesn't match
-    /// the type of the `output` slice, or for any of the same reasons as `gather_bytes_into`.
-    fn gather_into< T, I >( &self, indices: I, output: &mut [T] ) where I: ToIndices, T: DataType {
-        assert_eq!( T::TYPE, self.data_type() );
-        self.gather_bytes_into( indices, as_byte_slice_mut( output ) );
-    }
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] );
 
     /// Returns whenever this data source is empty.
     fn is_empty( &self ) -> bool {
         self.len() == 0
     }
 }
+
+pub trait DataSourceExt: DataSource {
+    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
+        self.raw_gather_bytes_into( &indices, output );
+    }
+
+    /// Copies data to `output` from `indices`.
+    ///
+    /// Will panic if the `data_type` of this data source doesn't match
+    /// the type of the `output` slice, or for any of the same reasons as `raw_gather_bytes_into`.
+    fn gather_into< T, I >( &self, indices: I, output: &mut [T] ) where I: ToIndices, T: DataType {
+        assert_eq!( T::TYPE, self.data_type() );
+        self.gather_bytes_into( indices, as_byte_slice_mut( output ) );
+    }
+}
+
+impl< T > DataSourceExt for T where T: DataSource {}
 
 impl< 'r, S > DataSource for &'r S where S: DataSource {
     fn data_type( &self ) -> Type {
@@ -70,8 +78,8 @@ impl< 'r, S > DataSource for &'r S where S: DataSource {
         DataSource::len( *self )
     }
 
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
-        DataSource::gather_bytes_into( *self, indices, output )
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
+        DataSource::raw_gather_bytes_into( *self, indices, output )
     }
 }
 
@@ -88,8 +96,8 @@ impl< S > DataSource for Rc< S > where S: DataSource {
         DataSource::len( self.deref() )
     }
 
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
-        DataSource::gather_bytes_into( self.deref(), indices, output )
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
+        DataSource::raw_gather_bytes_into( self.deref(), indices, output )
     }
 }
 
@@ -106,7 +114,7 @@ impl< S > DataSource for Arc< S > where S: DataSource {
         DataSource::len( self.deref() )
     }
 
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
-        DataSource::gather_bytes_into( self.deref(), indices, output )
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
+        DataSource::raw_gather_bytes_into( self.deref(), indices, output )
     }
 }

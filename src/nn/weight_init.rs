@@ -22,7 +22,8 @@ use {
         },
         core::{
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceExt
             },
             raw_array_source::{
                 RawArraySource
@@ -243,7 +244,7 @@ pub fn initialize_weights< I >
     let mut input_shape = model.input_shape();
     let mut input_buffer = RawArraySource::new_uninitialized( batch_size, input_shape.clone(), input_data.data_type() );
     input_data.gather_bytes_into(
-        &indexes,
+        indexes,
         input_buffer.as_bytes_mut()
     );
 

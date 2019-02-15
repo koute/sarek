@@ -107,7 +107,7 @@ impl< T, C > DataSource for SliceSource< T, C >
         self.length
     }
 
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
         let output = cast_slice_mut::< T >( output );
         let mut output = TypedArrayMut::new( self.shape.clone(), output );
 
@@ -126,6 +126,9 @@ impl< T, C > ToArrayRef for SliceSource< T, C >
         TypedArrayRef::new( self.shape(), self.container.as_ref() ).into()
     }
 }
+
+#[cfg(test)]
+pub use crate::core::data_source::DataSourceExt;
 
 #[test]
 fn test_slice_source_basics() {

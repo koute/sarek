@@ -108,7 +108,7 @@ impl DataSource for RawArraySource {
         self.length
     }
 
-    fn gather_bytes_into< I >( &self, indices: I, output: &mut [u8] ) where I: ToIndices {
+    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
         let input = self.as_bytes();
         let input = ArrayRef::new( self.shape(), self.data_type(), input );
         let mut output = ArrayMut::new( self.shape(), self.data_type(), output );
