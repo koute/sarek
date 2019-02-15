@@ -1,9 +1,4 @@
 use {
-    std::{
-        error::{
-            Error
-        }
-    },
     pyo3::{
         prelude::*,
         types::{
@@ -15,6 +10,9 @@ use {
     },
     crate::{
         backend::{
+            GetWeightsError,
+            ModelCompilationError,
+            SetWeightsError,
             keras::{
                 context::{
                     Context
@@ -30,24 +28,18 @@ use {
                     PyResultExt,
                     py_err
                 }
+            },
+            model::{
+                ModelInstanceState,
+                OutputKind
             }
         },
         core::{
             array::{
                 ToArrayRef
             },
-            data_set::{
-                DataSet
-            },
             data_source::{
                 DataSource
-            },
-            data_type::{
-                Type,
-                cast_slice_mut
-            },
-            name::{
-                Name
             },
             raw_array_source::{
                 RawArraySource
@@ -75,13 +67,6 @@ use {
                 LayerShift,
                 LayerSoftmax
             },
-            loss::{
-                Loss
-            },
-            model::{
-                InvalidModelError,
-                Model
-            },
             optimizers::{
                 Optimizer,
                 OptimizerSGD,
@@ -94,58 +79,11 @@ use {
     }
 };
 
-enum OutputKind {
-    Regression,
-    SparseCategory
-}
-
 /// A compiled `Model`.
 pub struct ModelInstance {
     _ctx: Context,
-    obj: PyObject,
-    model: Model,
-    output_kind: OutputKind
+    obj: PyObject
 }
-
-#[non_exhaustive]
-#[derive(Debug, Display, From)]
-pub enum ModelCompilationError {
-    #[display(fmt = "model compilation failed: {}", "_0")]
-    InvalidModel( InvalidModelError )
-}
-
-#[non_exhaustive]
-#[derive(Debug, Display, From)]
-pub enum SetWeightsError {
-    #[display(fmt = "failed to set weights: {}", "_0")]
-    LayerNotFound( LayerNotFoundError ),
-    #[display(fmt =
-        "failed to set weights: layer '{}' has {} weight(s), yet {} weight(s) were passed",
-        "layer_name",
-        "layer_weight_count",
-        "passed_weight_count"
-    )]
-    UnexpectedWeightCount {
-        layer_name: Name,
-        layer_weight_count: usize,
-        passed_weight_count: usize
-    }
-}
-
-#[non_exhaustive]
-#[derive(Debug, Display, From)]
-pub enum GetWeightsError {
-    #[display(fmt = "failed to get weights: {}", "_0")]
-    LayerNotFound( LayerNotFoundError )
-}
-
-#[derive(Debug, Display)]
-#[display(fmt = "model has no layer named '{}'", "_0")]
-pub struct LayerNotFoundError( Name );
-
-impl Error for ModelCompilationError {}
-impl Error for SetWeightsError {}
-impl Error for GetWeightsError {}
 
 fn constant_layer< 'a >( py: Python< 'a >, input_shape: &Shape, values: &[f32] ) -> &'a PyObjectRef {
     let mut array = TypedPyArray::< f32 >::new( py, input_shape.prepend( 1 ) );
@@ -161,13 +99,12 @@ fn constant_layer< 'a >( py: Python< 'a >, input_shape: &Shape, values: &[f32] )
 }
 
 impl ModelInstance {
-    pub fn new( ctx: &Context, model: Model ) -> Result< ModelInstance, ModelCompilationError > {
-        Self::compile( ctx, model, None )
-    }
-
-    pub(crate) fn compile( ctx: &Context, mut model: Model, training_opts: Option< TrainingOpts > ) -> Result< ModelInstance, ModelCompilationError > {
-        model.validate()?;
-
+    pub(crate) fn compile(
+        ctx: &Context,
+        state: &mut ModelInstanceState,
+        training_opts: Option< TrainingOpts >
+    ) -> Result< ModelInstance, ModelCompilationError >
+    {
         Context::gil( move |py| {
             let tf_ns = py.import( "tensorflow" ).unwrap();
             let keras_ns = tf_ns.getattr( "keras" ).unwrap();
@@ -176,8 +113,7 @@ impl ModelInstance {
             let initializers_ns = keras_ns.getattr( "initializers" ).unwrap();
             let constant = initializers_ns.getattr( "constant" ).unwrap();
             let is_trainable = training_opts.is_some();
-            let mut output_kind = OutputKind::Regression;
-            let mut input_shape = model.input_shape();
+            let mut input_shape = state.model.input_shape();
 
             let initial_layer = {
                 let kwargs = PyDict::new( py );
@@ -188,8 +124,8 @@ impl ModelInstance {
             let model_inputs = PyList::new( py, &[initial_layer.clone()] );
             let mut last_layer = initial_layer.clone();
 
-            let model_layer_count = model.layers.len();
-            for (layer_index, layer) in model.layers.iter_mut().enumerate() {
+            let model_layer_count = state.model.layers.len();
+            for (layer_index, layer) in state.model.layers.iter_mut().enumerate() {
                 let mut kwargs = PyDict::new( py );
 
                 let is_last = layer_index + 1 == model_layer_count;
@@ -288,7 +224,6 @@ impl ModelInstance {
                         assert!( is_last, "The `LayerIntoCategory` is only supported as the last layer of the network" );
                         let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), None ).unwrap();
                         last_layer = layer.call( (last_layer,), None ).unwrap();
-                        output_kind = OutputKind::SparseCategory;
                     },
                     Layer::MaxPooling( layer ) => {
                         if input_shape.dimension_count() == 2 {
@@ -388,7 +323,7 @@ impl ModelInstance {
                     compile_kwargs.set_item( "optimizer", optimizer ).unwrap();
                 }
 
-                let loss = match output_kind {
+                let loss = match state.output_kind {
                     OutputKind::Regression => LossKind::MeanSquaredError,
                     OutputKind::SparseCategory => LossKind::SparseCategoricalCrossEntropy
                 };
@@ -410,49 +345,50 @@ impl ModelInstance {
 
             let instance = ModelInstance {
                 _ctx: ctx.clone(),
-                obj: model_obj.to_object( py ),
-                model,
-                output_kind
+                obj: model_obj.to_object( py )
             };
 
             Ok( instance )
         })
     }
 
-    pub(crate) fn model( &self ) -> &Model {
-        &self.model
-    }
-
-    pub fn input_shape( &self ) -> Shape {
-        self.model.input_shape()
-    }
-
-    pub fn output_shape( &self ) -> Shape {
-        self.model.output_shape()
-    }
-
-    pub fn set_weights< N >( &mut self, layer_name: N, weights: &[f32] ) -> Result< (), SetWeightsError > where N: Into< Name > {
-        let layer_name = layer_name.into();
-        let (layer, input_shape) = match self.model.get_layer_and_input_shape( &layer_name ) {
-            Some( result ) => result,
-            None => return Err( LayerNotFoundError( layer_name ) )?
-        };
-
-        let weight_count = layer.weight_count( &input_shape );
-        if weights.len() != weight_count {
-            return Err( SetWeightsError::UnexpectedWeightCount {
-                layer_name,
-                layer_weight_count: weight_count,
-                passed_weight_count: weights.len()
-            });
-        }
-
-        if weight_count == 0 {
-            return Ok(());
-        }
-
+    pub(crate) fn set_weights(
+        &mut self,
+        input_shape: &Shape,
+        layer: &Layer,
+        weights: &[f32]
+    ) -> Result< (), SetWeightsError >
+    {
         Context::gil( |py| {
-            self.set_weights_for_layer( py, &input_shape, layer, weights );
+            let weights = match layer {
+                Layer::Convolution( layer ) => {
+                    let (bias_array, weight_array) = Self::weights_into_arrays_for_convolutional_layer( py, input_shape, layer, weights );
+                    let list = PyList::empty( py );
+                    list.append( weight_array ).unwrap();
+                    list.append( bias_array ).unwrap();
+                    list
+                },
+                Layer::Dense( layer ) => {
+                    let (bias_array, weight_array) = Self::weights_into_arrays_for_dense_layer( py, input_shape, layer, weights );
+                    let list = PyList::empty( py );
+                    list.append( weight_array ).unwrap();
+                    list.append( bias_array ).unwrap();
+                    list
+                },
+                Layer::Activation( _ ) |
+                Layer::Dropout( _ ) |
+                Layer::IntoCategory( _ ) |
+                Layer::MaxPooling( _ ) |
+                Layer::Multiply( _ ) |
+                Layer::Reshape( _ ) |
+                Layer::Shift( _ ) |
+                Layer::Softmax( _ )
+                    => unreachable!()
+            };
+
+            let layer_name = layer.name().to_string();
+            let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name,), None ).unwrap();
+            layer.getattr( py, "set_weights" ).unwrap().call( py, (weights,), None ).map_err( |err| py_err( py, err ) ).unwrap();
         });
 
         Ok(())
@@ -491,47 +427,11 @@ impl ModelInstance {
         (bias_array, weight_array)
     }
 
-    fn set_weights_for_layer( &self, py: Python, input_shape: &Shape, layer: &Layer, weights: &[f32] ) {
-        let weights = match layer {
-            Layer::Convolution( layer ) => {
-                let (bias_array, weight_array) = Self::weights_into_arrays_for_convolutional_layer( py, input_shape, layer, weights );
-                let list = PyList::empty( py );
-                list.append( weight_array ).unwrap();
-                list.append( bias_array ).unwrap();
-                list
-            },
-            Layer::Dense( layer ) => {
-                let (bias_array, weight_array) = Self::weights_into_arrays_for_dense_layer( py, input_shape, layer, weights );
-                let list = PyList::empty( py );
-                list.append( weight_array ).unwrap();
-                list.append( bias_array ).unwrap();
-                list
-            },
-            Layer::Activation( _ ) |
-            Layer::Dropout( _ ) |
-            Layer::IntoCategory( _ ) |
-            Layer::MaxPooling( _ ) |
-            Layer::Multiply( _ ) |
-            Layer::Reshape( _ ) |
-            Layer::Shift( _ ) |
-            Layer::Softmax( _ )
-                => unreachable!()
-        };
-
-        let layer_name = layer.name().to_string();
-        let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name,), None ).unwrap();
-        layer.getattr( py, "set_weights" ).unwrap().call( py, (weights,), None ).map_err( |err| py_err( py, err ) ).unwrap();
-    }
-
-    pub fn get_weights< N >( &self, layer_name: N ) -> Result< impl ToArrayRef + DataSource, GetWeightsError > where N: Into< Name > {
-        let layer_name = layer_name.into();
-        let (layer, input_shape) = match self.model.get_layer_and_input_shape( &layer_name ) {
-            Some( result ) => result,
-            None => return Err( LayerNotFoundError( layer_name ) )?
-        };
-
+    pub(crate) fn get_weights( &self, input_shape: &Shape, layer: &Layer )
+        -> Result< impl ToArrayRef + DataSource, GetWeightsError >
+    {
         let weight_count = layer.weight_count( &input_shape );
-        let layer_name_s = layer_name.to_string();
+        let layer_name_s = layer.name().to_string();
         let output = Context::gil( move |py| {
             let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name_s,), None ).unwrap();
             let weights_list = layer.getattr( py, "get_weights" ).unwrap().call( py, (), None ).map_err( |err| py_err( py, err ) ).unwrap();
@@ -547,15 +447,6 @@ impl ModelInstance {
 
             output
         });
-
-        assert_eq!(
-            weight_count,
-            output.len(),
-            "Internal error: expected the number of weights for layer {} to be {}; instead it is {}",
-            layer_name,
-            weight_count,
-            output.len()
-        );
 
         Ok( SliceSource::from( Shape::new_1d( weight_count ), output ) )
     }
@@ -589,13 +480,13 @@ impl ModelInstance {
         loss * (batch_size as f32)
     }
 
-    pub(crate) fn train_for_epoch< F >( &mut self, batch_size: usize, mut fill_data: F ) -> f32
+    pub(crate) fn train_for_epoch< F >( &mut self, state: &ModelInstanceState, batch_size: usize, mut fill_data: F ) -> f32
         where F: FnMut( &mut [u8], &mut [u8] ) -> bool + Send
     {
-        let input_shape = self.model.input_shape();
-        let output_shape = self.model.output_shape();
-        let input_data_type = self.model.input_data_type();
-        let output_data_type = self.model.output_data_type();
+        let input_shape = state.model.input_shape();
+        let output_shape = state.model.output_shape();
+        let input_data_type = state.model.input_data_type();
+        let output_data_type = state.model.output_data_type();
 
         Context::gil( move |py| {
             let mut inputs = PyArray::new( py, input_shape.prepend( batch_size ), input_data_type );
@@ -615,16 +506,8 @@ impl ModelInstance {
         })
     }
 
-    pub(crate) fn predict_raw< I >( &mut self, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
+    pub(crate) fn predict_raw< I >( &mut self, _state: &ModelInstanceState, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
         let input_shape = input_data.shape();
-        assert_eq!(
-            self.input_shape(),
-            input_shape,
-            "The input data's shape is {}; expected it to be equal to the input shape of the model, which is {}",
-            input_shape,
-            self.input_shape()
-        );
-
         Context::gil( move |py| {
             let mut inputs = PyArray::new( py, input_shape.prepend( input_data.len() ), input_data.data_type() );
             input_data.gather_bytes_into( .., inputs.as_bytes_mut() );
@@ -633,137 +516,5 @@ impl ModelInstance {
             let result = unsafe { PyArray::from_object_unchecked( py, result ) };
             result.into_raw_array()
         })
-    }
-
-    pub fn predict< I >( &mut self, input_data: &I ) -> impl ToArrayRef + DataSource where I: DataSource + Sync {
-        let result = self.predict_raw( input_data );
-        match self.output_kind {
-            OutputKind::Regression => {
-                debug_assert_eq!(
-                    result.shape(),
-                    self.model.output_shape(),
-                    "Internal error: expected the output of the network to have a shape of {}; instead it has a shape of {}",
-                    self.model.output_shape(),
-                    result.shape()
-                );
-
-                result
-            },
-            OutputKind::SparseCategory => {
-                let count = result.len();
-                let mut categories = RawArraySource::new_uninitialized( count, 1.into(), Type::U32 );
-                let categories_slice = cast_slice_mut::< u32 >( categories.as_bytes_mut() );
-                let result = result.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
-                for index in 0..count {
-                    let category = result[ index ]
-                        .iter()
-                        .enumerate()
-                        .max_by_key( |(_, &value)| decorum::Finite::from( value ) )
-                        .unwrap()
-                        .0;
-                    categories_slice[ index ] = category as u32;
-                }
-
-                categories
-            }
-        }
-    }
-
-    fn test_regression< I, O >( &mut self, chunk_size: usize, test_data: &DataSet< I, O > ) -> Loss
-        where I: DataSource + Sync, O: DataSource + Sync
-    {
-        let mut total_loss = 0.0;
-
-        let mut expected: Vec< f32 > = Vec::new();
-        expected.reserve( chunk_size );
-        unsafe {
-            expected.set_len( chunk_size );
-        }
-
-        let element_size = test_data.expected_output_data().shape().product();
-        for test_chunk in test_data.chunks( chunk_size ) {
-            let chunk_size = test_chunk.len();
-            let predictions = self.predict_raw( test_chunk.input_data() );
-            debug_assert_eq!( predictions.len(), chunk_size );
-
-            let expected = &mut expected[ ..chunk_size * element_size ];
-            test_chunk.expected_output_data().gather_into( .., expected );
-
-            let predictions = predictions.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
-            let predictions = predictions.as_slice();
-            for (expected, predicted) in expected.chunks_exact( element_size ).zip( predictions.chunks_exact( element_size ) ) {
-                total_loss += predicted.iter().zip( expected.iter() )
-                    .map( |(output, expected_output)| (output - expected_output) * 2.0 / element_size as f32 )
-                    .map( |output_error| output_error * output_error )
-                    .sum::< f32 >()
-                    * element_size as f32
-                    / 4.0;
-            }
-        }
-
-        Loss {
-            loss: total_loss,
-            accuracy: None
-        }
-    }
-
-    fn test_classification< I, O >( &mut self, chunk_size: usize, test_data: &DataSet< I, O > ) -> Loss
-        where I: DataSource + Sync, O: DataSource + Sync
-    {
-        let mut total_loss = 0.0;
-
-        let mut correct_count = 0;
-        let mut expected: Vec< u32 > = Vec::new();
-        expected.reserve( chunk_size );
-        unsafe {
-            expected.set_len( chunk_size );
-        }
-
-        for test_chunk in test_data.chunks( chunk_size ) {
-            let chunk_size = test_chunk.len();
-            let predictions = self.predict_raw( test_chunk.input_data() );
-            debug_assert_eq!( predictions.len(), chunk_size );
-
-            let expected = &mut expected[ ..chunk_size ];
-            test_chunk.expected_output_data().gather_into( .., expected );
-
-            let predictions = predictions.to_typed_array_ref::< f32 >().expect( "internal error: unhandled array type" );
-            for index in 0..chunk_size {
-                let prediction = &predictions[ index ];
-                let predicted = prediction
-                    .iter()
-                    .enumerate()
-                    .max_by_key( |(_, &value)| decorum::Finite::from( value ) )
-                    .unwrap()
-                    .0 as u32;
-
-                let expected = expected[ index ];
-                if predicted == expected {
-                    correct_count += 1;
-                }
-
-                let sum: f32 = prediction.iter().sum();
-                total_loss += -(prediction[ expected as usize ] / sum).ln();
-            }
-        }
-
-        let total_count = test_data.len();
-        let accuracy = correct_count as f32 / total_count as f32;
-        Loss {
-            loss: total_loss,
-            accuracy: Some( accuracy )
-        }
-    }
-
-    pub fn test< I, O >( &mut self, test_data: &DataSet< I, O > ) -> Loss
-        where I: DataSource + Sync, O: DataSource + Sync
-    {
-        // TODO: Pick the chunk size more intelligently.
-        let chunk_size = 128;
-
-        match self.output_kind {
-            OutputKind::Regression => self.test_regression( chunk_size, test_data ),
-            OutputKind::SparseCategory => self.test_classification( chunk_size, test_data )
-        }
     }
 }

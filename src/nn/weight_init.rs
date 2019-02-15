@@ -16,11 +16,9 @@ use {
     },
     crate::{
         backend::{
-            keras::{
-                Context,
-                ModelCompilationError,
-                ModelInstance
-            }
+            Context,
+            ModelCompilationError,
+            ModelInstance
         },
         core::{
             data_source::{

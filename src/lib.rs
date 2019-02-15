@@ -46,10 +46,8 @@ pub mod optimizers {
 
 pub use crate::{
     backend::{
-        keras::{
-            Context,
-            ModelInstance
-        }
+        Context,
+        ModelInstance
     },
     core::{
         array::{

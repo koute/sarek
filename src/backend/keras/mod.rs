@@ -11,8 +11,6 @@ pub use self::{
         Context
     },
     model::{
-        ModelCompilationError,
-        ModelInstance,
-        SetWeightsError
+        ModelInstance
     }
 };

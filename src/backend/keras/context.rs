@@ -1,8 +1,6 @@
 use {
     std::{
-        env,
-        error::Error,
-        fmt
+        env
     },
     lazy_static::lazy_static,
     log::info,
@@ -11,6 +9,7 @@ use {
     },
     crate::{
         backend::{
+            ContextCreationError,
             keras::{
                 async_runner::{
                     AsyncRunner
@@ -31,18 +30,6 @@ lazy_static! {
 pub struct Context {
     _dummy: ()
 }
-
-#[derive(Display)]
-#[display(fmt = "context creation failed: {}", "_0")]
-pub struct ContextCreationError( Box< Error + Send > );
-
-impl fmt::Debug for ContextCreationError {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        fmt::Debug::fmt( &self.0, fmt )
-    }
-}
-
-impl Error for ContextCreationError {}
 
 impl Context {
     fn new_internal( py: Python ) -> PyResult< Self > {
