@@ -65,56 +65,28 @@ pub trait DataSourceExt: DataSource {
 
 impl< T > DataSourceExt for T where T: DataSource {}
 
-impl< 'r, S > DataSource for &'r S where S: DataSource {
-    fn data_type( &self ) -> Type {
-        DataSource::data_type( *self )
-    }
+macro_rules! impl_data_source_proxy {
+    (($($ty_args:tt)*) DataSource for $type:ty $(where $($where_clause:tt)*)?) => {
+        impl< $($ty_args)* > DataSource for $type where $($($where_clause)*)? {
+            fn data_type( &self ) -> Type {
+                DataSource::data_type( self.deref() )
+            }
 
-    fn shape( &self ) -> Shape {
-        DataSource::shape( *self )
-    }
+            fn shape( &self ) -> Shape {
+                DataSource::shape( self.deref() )
+            }
 
-    fn len( &self ) -> usize {
-        DataSource::len( *self )
-    }
+            fn len( &self ) -> usize {
+                DataSource::len( self.deref() )
+            }
 
-    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
-        DataSource::raw_gather_bytes_into( *self, indices, output )
+            fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
+                DataSource::raw_gather_bytes_into( self.deref(), indices, output )
+            }
+        }
     }
 }
 
-impl< S > DataSource for Rc< S > where S: DataSource {
-    fn data_type( &self ) -> Type {
-        DataSource::data_type( self.deref() )
-    }
-
-    fn shape( &self ) -> Shape {
-        DataSource::shape( self.deref() )
-    }
-
-    fn len( &self ) -> usize {
-        DataSource::len( self.deref() )
-    }
-
-    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
-        DataSource::raw_gather_bytes_into( self.deref(), indices, output )
-    }
-}
-
-impl< S > DataSource for Arc< S > where S: DataSource {
-    fn data_type( &self ) -> Type {
-        DataSource::data_type( self.deref() )
-    }
-
-    fn shape( &self ) -> Shape {
-        DataSource::shape( self.deref() )
-    }
-
-    fn len( &self ) -> usize {
-        DataSource::len( self.deref() )
-    }
-
-    fn raw_gather_bytes_into( &self, indices: &dyn ToIndices, output: &mut [u8] ) {
-        DataSource::raw_gather_bytes_into( self.deref(), indices, output )
-    }
-}
+impl_data_source_proxy!( ('r, S) DataSource for &'r S where S: DataSource );
+impl_data_source_proxy!( (S) DataSource for Rc< S > where S: DataSource );
+impl_data_source_proxy!( (S) DataSource for Arc< S > where S: DataSource );
