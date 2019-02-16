@@ -87,6 +87,7 @@ macro_rules! impl_data_source_proxy {
     }
 }
 
-impl_data_source_proxy!( ('r, S) DataSource for &'r S where S: DataSource );
-impl_data_source_proxy!( (S) DataSource for Rc< S > where S: DataSource );
-impl_data_source_proxy!( (S) DataSource for Arc< S > where S: DataSource );
+impl_data_source_proxy!( ('r, S) DataSource for &'r S where S: DataSource + ?Sized );
+impl_data_source_proxy!( (S) DataSource for Rc< S > where S: DataSource + ?Sized );
+impl_data_source_proxy!( (S) DataSource for Arc< S > where S: DataSource + ?Sized );
+impl_data_source_proxy!( () DataSource for Box< DataSource > );
