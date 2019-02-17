@@ -125,11 +125,9 @@ impl ModelInstance {
             let model_inputs = PyList::new( py, &[initial_layer.clone()] );
             let mut last_layer = initial_layer.clone();
 
-            let model_layer_count = state.model.layers.len();
             for (layer_index, layer) in state.model.layers.iter_mut().enumerate() {
                 let mut kwargs = PyDict::new( py );
 
-                let is_last = layer_index + 1 == model_layer_count;
                 match layer {
                     Layer::Activation( LayerActivation { name, activation } ) => {
                         kwargs.set_item( "name", name.to_string() ).unwrap();
@@ -222,7 +220,6 @@ impl ModelInstance {
                         last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
                     Layer::IntoCategory( _ ) => {
-                        assert!( is_last, "The `LayerIntoCategory` is only supported as the last layer of the network" );
                         let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), None ).unwrap();
                         last_layer = layer.call( (last_layer,), None ).unwrap();
                     },
