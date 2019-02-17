@@ -1,5 +1,11 @@
 use {
     std::{
+        cmp::{
+            min
+        },
+        iter::{
+            FusedIterator
+        },
         ops::{
             Deref
         },
@@ -18,6 +24,9 @@ use {
             },
             shape::{
                 Shape
+            },
+            split_data_source::{
+                SplitDataSource
             }
         }
     }
@@ -61,9 +70,75 @@ pub trait DataSourceExt: DataSource {
         assert_eq!( T::TYPE, self.data_type() );
         self.gather_bytes_into( indices, as_byte_slice_mut( output ) );
     }
+
+    /// Returns an iterator over `chunk_size` elements of the data source at a time,
+    /// starting at the beginning.
+    ///
+    /// The chunks will not overlap. If `chunk_size` is not divisible by the size of the data source
+    /// then the last chunk will not have the length of `chunk_size`.
+    ///
+    /// ```rust
+    /// # use sarek::{Shape, DataSource, DataSourceExt, SliceSource};
+    /// let data: &[f32] = &[ 1.0, 2.0, 3.0, 4.0, 5.0, 6.0 ];
+    /// let src = SliceSource::from( Shape::new_2d( 1, 2 ), data );
+    ///
+    /// assert_eq!( src.len(), 3 );
+    ///
+    /// let mut chunks = src.chunks( 2 );
+    ///
+    /// assert_eq!( chunks.next().unwrap().len(), 2 );
+    /// assert_eq!( chunks.next().unwrap().len(), 1 );
+    /// assert!( chunks.next().is_none() );
+    /// ```
+    fn chunks( &self, chunk_size: usize ) -> DataSourceChunks< Self > {
+        DataSourceChunks {
+            chunk_size,
+            data_source: self,
+            index: 0
+        }
+    }
 }
 
 impl< T > DataSourceExt for T where T: DataSource {}
+
+pub struct DataSourceChunks< 'a, S > where S: DataSource + ?Sized {
+    chunk_size: usize,
+    data_source: &'a S,
+    index: usize
+}
+
+impl< 'a, S > Iterator for DataSourceChunks< 'a, S > where S: DataSource + ?Sized {
+    type Item = SplitDataSource< &'a S >;
+    fn next( &mut self ) -> Option< Self::Item > {
+        if self.index == self.data_source.len() {
+            return None;
+        }
+
+        let next_index = min( self.index + self.chunk_size, self.data_source.len() );
+        let range = self.index..next_index;
+        self.index = next_index;
+
+        let subset = SplitDataSource::new( self.data_source, range.clone() );
+        Some( subset )
+    }
+
+    fn size_hint( &self ) -> (usize, Option< usize >) {
+        if self.chunk_size == 0 {
+            return (0, Some( 0 ));
+        }
+
+        let total_length = self.data_source.len();
+        let mut remaining = total_length / self.chunk_size;
+        if total_length * self.chunk_size != 0 {
+            remaining += 1;
+        }
+
+        (remaining, Some( remaining ))
+    }
+}
+
+impl< 'a, S > ExactSizeIterator for DataSourceChunks< 'a, S > where S: DataSource + ?Sized {}
+impl< 'a, S > FusedIterator for DataSourceChunks< 'a, S > where S: DataSource + ?Sized {}
 
 macro_rules! impl_data_source_proxy {
     (($($ty_args:tt)*) DataSource for $type:ty $(where $($where_clause:tt)*)?) => {
