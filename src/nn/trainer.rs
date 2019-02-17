@@ -100,12 +100,11 @@ impl< I, O > DerefMut for Trainer< I, O >
     }
 }
 
-fn average_over< I, O, F >( data_set: &DataSet< I, O >, callback: F ) -> Vec< f64 >
+fn average_over< I, F >( input_data: &I, callback: F ) -> Vec< f64 >
     where I: DataSource + Send + Sync,
-            O: DataSource + Send + Sync,
-            F: Fn( usize, f64 ) -> f64
+          F: Fn( usize, f64 ) -> f64
 {
-    let element_size = data_set.input_data().shape().product();
+    let element_size = input_data.shape().product();
     let mut results = Vec::new();
     results.resize( element_size, 0.0 );
 
@@ -115,10 +114,10 @@ fn average_over< I, O, F >( data_set: &DataSet< I, O >, callback: F ) -> Vec< f6
     buffer.reserve( buffer_size );
     unsafe { buffer.set_len( buffer_size ); }
 
-    for training_chunk in data_set.chunks( chunk_size ) {
+    for training_chunk in input_data.chunks( chunk_size ) {
         let chunk_size = training_chunk.len();
         let buffer = &mut buffer[ ..chunk_size * element_size ];
-        training_chunk.input_data().gather_into( .., buffer );
+        training_chunk.gather_into( .., buffer );
         for element in buffer.chunks_exact( element_size ) {
             debug_assert_eq!( element.len(), results.len() );
 
@@ -131,7 +130,7 @@ fn average_over< I, O, F >( data_set: &DataSet< I, O >, callback: F ) -> Vec< f6
         }
     }
 
-    let length = data_set.len() as f64;
+    let length = input_data.len() as f64;
     for result in results.iter_mut() {
         *result /= length;
     }
@@ -139,14 +138,13 @@ fn average_over< I, O, F >( data_set: &DataSet< I, O >, callback: F ) -> Vec< f6
     results
 }
 
-fn normalize_inputs< I, O >( data_set: &DataSet< I, O > ) -> (Vec< f32 >, Vec< f32 >)
-    where I: DataSource + Send + Sync,
-          O: DataSource + Send + Sync
+fn normalize_inputs< I >( input_data: &I ) -> (Vec< f32 >, Vec< f32 >)
+    where I: DataSource + Send + Sync
 {
     info!( "Calculating input normalization matrices..." );
 
-    let mean_shift = average_over( &data_set, |_, x| -x );
-    let mut variance_adjustment = average_over( &data_set, |index, x| {
+    let mean_shift = average_over( input_data, |_, x| -x );
+    let mut variance_adjustment = average_over( input_data, |index, x| {
         let a = x + mean_shift[ index ];
         a * a
     });
@@ -207,7 +205,7 @@ impl< I, O > Trainer< I, O >
         );
 
         if training_opts.normalize_inputs {
-            let (mean_shift, variance_adjustment) = normalize_inputs( &data_set );
+            let (mean_shift, variance_adjustment) = normalize_inputs( data_set.input_data() );
             let layers = model.layers;
             model.layers = Vec::with_capacity( layers.len() + 1 );
 
