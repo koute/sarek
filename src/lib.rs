@@ -61,7 +61,8 @@ pub use crate::{
             DataSet
         },
         data_source::{
-            DataSource
+            DataSource,
+            DataSourceExt
         },
         data_type::{
             DataType,
