@@ -93,7 +93,7 @@ impl< T, C > Clone for SliceSource< T, C >
 
 impl< T, C > DataSource for SliceSource< T, C >
     where T: DataType,
-          C: AsRef< [T] >
+          C: AsRef< [T] > + Send + Sync
 {
     fn data_type( &self ) -> Type {
         T::TYPE
@@ -120,7 +120,7 @@ impl< T, C > DataSource for SliceSource< T, C >
 
 impl< T, C > ToArrayRef for SliceSource< T, C >
     where T: DataType,
-          C: AsRef< [T] >
+          C: AsRef< [T] > + Send + Sync
 {
     fn to_array_ref( &self ) -> ArrayRef {
         TypedArrayRef::new( self.shape(), self.container.as_ref() ).into()
