@@ -3,6 +3,10 @@ language: rust
 dist: xenial
 sudo: required
 
+before_install:
+  - sudo apt-get update
+  - sudo apt-get install -y python3-pip
+
 install:
   - pip3 install --user tensorflow==1.13.1 --progress-bar off
 
