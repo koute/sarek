@@ -1,5 +1,6 @@
 #![feature(non_exhaustive)]
 #![feature(core_intrinsics)]
+#![feature(specialization)]
 #![allow(clippy::into_iter_on_ref)]
 #![allow(clippy::into_iter_on_array)]
 #![allow(clippy::new_without_default)]
@@ -9,6 +10,9 @@
 
 #[macro_use]
 extern crate derive_more;
+
+#[macro_use]
+mod macros;
 
 mod backend;
 mod core;

@@ -1,0 +1,32 @@
+macro_rules! access_tuple {
+    ($this:expr, T00) => { $this.0 };
+    ($this:expr, T01) => { $this.1 };
+    ($this:expr, T02) => { $this.2 };
+    ($this:expr, T03) => { $this.3 };
+    ($this:expr, T04) => { $this.4 };
+    ($this:expr, T05) => { $this.5 };
+    ($this:expr, T06) => { $this.6 };
+    ($this:expr, T07) => { $this.7 };
+    ($this:expr, T08) => { $this.8 };
+    ($this:expr, T09) => { $this.9 };
+    ($this:expr, T10) => { $this.10 };
+    ($this:expr, T11) => { $this.11 };
+    ($this:expr, T12) => { $this.12 };
+    ($this:expr, T13) => { $this.13 };
+    ($this:expr, T14) => { $this.14 };
+    ($this:expr, T15) => { $this.15 };
+    ($this:expr, T16) => { $this.16 };
+    ($this:expr, T17) => { $this.17 };
+    ($this:expr, T18) => { $this.18 };
+    ($this:expr, T19) => { $this.19 };
+    ($this:expr, T20) => { $this.20 };
+    ($this:expr, T21) => { $this.21 };
+    ($this:expr, T22) => { $this.22 };
+    ($this:expr, T23) => { $this.23 };
+    ($this:expr, T24) => { $this.24 };
+    ($this:expr, T25) => { $this.25 };
+    ($this:expr, T26) => { $this.26 };
+    ($this:expr, T27) => { $this.27 };
+    ($this:expr, T28) => { $this.28 };
+    ($this:expr, T29) => { $this.29 };
+}
