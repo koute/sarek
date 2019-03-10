@@ -1,4 +1,11 @@
 use {
+    crate::{
+        core::{
+            data_type::{
+                Type
+            }
+        }
+    },
     log::{
         error
     },
@@ -105,5 +112,17 @@ impl< T > PyResultExt< T > for Result< T, PyErr > {
                 panic!( "`unwrap_py` called on a Python error: {}", error );
             }
         }
+    }
+}
+
+pub fn py_type_name( ty: Type ) -> &'static str {
+    match ty {
+        Type::F32 => "float32",
+        Type::I32 => "int32",
+        Type::I16 => "int16",
+        Type::I8 => "int8",
+        Type::U32 => "uint32",
+        Type::U16 => "uint16",
+        Type::U8 => "uint8"
     }
 }

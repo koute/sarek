@@ -24,7 +24,8 @@ use {
                     TypedPyArray
                 },
                 py_utils::{
-                    PyResultExt
+                    PyResultExt,
+                    py_type_name
                 }
             },
             model::{
@@ -131,6 +132,7 @@ impl ModelInstance {
                     .map( |node_index| model.get_node( node_index ).output_shape().clone() )
                     .collect();
 
+                let output_type = model.get_node( node_index ).output_type();
                 let mut input_node_shape = None;
                 let layer = match *model.get_node_mut( node_index ) {
                     Node::Input { input_index, ref shape, .. } => {
@@ -138,6 +140,7 @@ impl ModelInstance {
 
                         let kwargs = PyDict::new( py );
                         kwargs.set_item( "shape", PyTuple::new( py, shape ) ).unwrap_py( py );
+                        kwargs.set_item( "dtype", py_type_name( output_type ) ).unwrap_py( py );
 
                         let layer = keras_ns.getattr( "Input" ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py );
                         model_input_list.append( layer ).unwrap_py( py );

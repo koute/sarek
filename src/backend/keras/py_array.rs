@@ -23,7 +23,8 @@ use {
             keras::{
                 ffi,
                 py_utils::{
-                    py_err
+                    py_err,
+                    py_type_name
                 }
             }
         },
@@ -249,18 +250,6 @@ impl PyArray {
 impl ToPyObject for PyArray {
     fn to_object( &self, py: Python ) -> PyObject {
         self.obj.clone_ref( py )
-    }
-}
-
-fn py_type_name( ty: Type ) -> &'static str {
-    match ty {
-        Type::F32 => "float32",
-        Type::I32 => "int32",
-        Type::I16 => "int16",
-        Type::I8 => "int8",
-        Type::U32 => "uint32",
-        Type::U16 => "uint16",
-        Type::U8 => "uint8"
     }
 }
 
