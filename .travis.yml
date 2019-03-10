@@ -5,7 +5,7 @@ sudo: required
 
 before_install:
   - sudo apt-get update
-  - sudo apt-get install -y python3-pip
+  - sudo apt-get install -y python3-pip python3-setuptools
 
 install:
   - pip3 install --user tensorflow==1.13.1
