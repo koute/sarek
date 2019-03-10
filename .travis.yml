@@ -9,10 +9,12 @@ before_install:
   - sudo add-apt-repository ppa:deadsnakes/ppa -y
   - sudo apt-get update
   - sudo apt-get install python3.7
-  - sudo apt-get install -y python3-pip python3-setuptools
   - ls /usr/bin/python* -1
+  - wget https://bootstrap.pypa.io/get-pip.py -O /tmp/get-pip.py
+  - sudo python3.7 /tmp/get-pip.py
 
 install:
+  - pip3 install --user setuptools
   - pip3 install --user tensorflow==1.13.1
 
 custom:
