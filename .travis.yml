@@ -3,8 +3,6 @@ language: rust
 dist: xenial
 sudo: required
 
-python: 3.7
-
 install:
   - pip install --user tensorflow==1.13.1 --progress-bar off
 
@@ -13,6 +11,7 @@ custom:
     stage: test
     cache:
       cargo: true
+      pip: true
     script:
       - ./ci/run_tests.sh
 
@@ -21,6 +20,8 @@ jobs:
     - <<: *test
       os: linux
       rust: nightly-2019-03-08
+      python: 3.7
     - <<: *test
       os: linux
       rust: nightly
+      python: 3.7
