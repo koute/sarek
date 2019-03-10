@@ -7,7 +7,8 @@ use {
     crate::{
         core::{
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceList
             },
             indices::{
                 Indices,
@@ -35,6 +36,13 @@ impl< S > SplitDataSource< S > where S: DataSource {
             range,
             inner: data_source
         }
+    }
+}
+
+impl< S > DataSourceList for SplitDataSource< S > where S: DataSource {
+    fn data_source_count( &self ) -> usize { 1 }
+    fn data_source_get( &self, index: usize ) -> Option< &dyn DataSource > {
+        if index == 0 { Some( self ) } else { None }
     }
 }
 

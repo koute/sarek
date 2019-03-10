@@ -11,7 +11,8 @@ use {
                 TypedArrayMut
             },
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceList
             },
             data_type::{
                 DataType,
@@ -88,6 +89,16 @@ impl< T, C > Clone for SliceSource< T, C >
             container: self.container.clone(),
             phantom: PhantomData
         }
+    }
+}
+
+impl< T, C > DataSourceList for SliceSource< T, C >
+    where T: DataType,
+          C: AsRef< [T] > + Send + Sync
+{
+    fn data_source_count( &self ) -> usize { 1 }
+    fn data_source_get( &self, index: usize ) -> Option< &dyn DataSource > {
+        if index == 0 { Some( self ) } else { None }
     }
 }
 

@@ -10,7 +10,8 @@ use {
                 ToArrayRef
             },
             data_source::{
-                DataSource
+                DataSource,
+                DataSourceList
             },
             data_type::{
                 DataType,
@@ -92,6 +93,13 @@ impl RawArraySource {
         } else {
             None
         }
+    }
+}
+
+impl DataSourceList for RawArraySource {
+    fn data_source_count( &self ) -> usize { 1 }
+    fn data_source_get( &self, index: usize ) -> Option< &dyn DataSource > {
+        if index == 0 { Some( self ) } else { None }
     }
 }
 

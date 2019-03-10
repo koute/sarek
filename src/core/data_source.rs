@@ -33,7 +33,7 @@ use {
 };
 
 /// A source of data.
-pub trait DataSource: Send + Sync {
+pub trait DataSource: DataSourceList + Send + Sync {
     /// The basic type of which the data is composed of.
     fn data_type( &self ) -> Type;
 
