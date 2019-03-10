@@ -136,7 +136,7 @@ fn average_over< I, F >( input_data: &I, callback: F ) -> Vec< f64 >
                 .zip( element.iter().cloned() );
 
             for (index, (result, value)) in iter.enumerate() {
-                *result += callback( index, value as f64 );
+                *result += callback( index, f64::from( value ) );
             }
         }
     }

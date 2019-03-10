@@ -4,7 +4,6 @@
 #![allow(clippy::into_iter_on_ref)]
 #![allow(clippy::into_iter_on_array)]
 #![allow(clippy::new_without_default)]
-#![allow(clippy::new_without_default_derive)]
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::type_complexity)]
 #![deny(bare_trait_objects)]

@@ -113,7 +113,7 @@ fn generate_normal_weights( rng: &mut dyn RngCore, bias_count: usize, weight_cou
     let factor = 2.0_f32;
     let n = n as f32;
     let stddev = (factor / n).sqrt();
-    let dist = rand::distributions::Normal::new( 0.0, stddev as f64 );
+    let dist = rand::distributions::Normal::new( 0.0, f64::from( stddev ) );
 
     let mut weights = Weights::new();
     weights.get_mut().extend( (0..bias_count).map( |_| 0.0 ) );
@@ -280,7 +280,7 @@ pub fn initialize_weights
 
     let batch_size = std::cmp::min( 128, input_data_length );
     let indexes = {
-        let mut indexes: Vec< _ > = (0..input_data_length).into_iter().collect();
+        let mut indexes: Vec< _ > = (0..input_data_length).collect();
         indexes.shuffle( rng );
         indexes.truncate( batch_size );
         indexes

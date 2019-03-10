@@ -429,7 +429,7 @@ impl Model {
     }
 
     pub(crate) fn node_indexes( &self ) -> impl ExactSizeIterator< Item = NodeIndex > + FusedIterator + 'static {
-        (0..self.nodes.len()).into_iter().map( |index| NodeIndex( index ) )
+        (0..self.nodes.len()).map( NodeIndex )
     }
 
     pub(crate) fn output_indexes_for_node< 'a >( &'a self, node_index: NodeIndex ) -> impl Iterator< Item = usize > + FusedIterator + 'a {

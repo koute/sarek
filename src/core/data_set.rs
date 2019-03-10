@@ -227,8 +227,8 @@ impl< I, O > DataSet< I, O >
     /// assert_eq!( chunks.next().unwrap().len(), 1 );
     /// assert!( chunks.next().is_none() );
     /// ```
-    pub fn chunks< 'a >( &'a self, chunk_size: usize ) ->
-        impl ExactSizeIterator< Item = DataSet< impl DataSourceList + 'a, impl DataSourceList + 'a > > + FusedIterator
+    pub fn chunks( &'_ self, chunk_size: usize ) ->
+        impl ExactSizeIterator< Item = DataSet< impl DataSourceList + '_, impl DataSourceList + '_ > > + FusedIterator
     {
         struct Iter< 'a, I, O > where I: DataSourceList, O: DataSourceList {
             chunk_size: usize,

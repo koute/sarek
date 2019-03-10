@@ -92,7 +92,7 @@ use {
 
 impl RawBufferList for Vec< PyArray > {
     fn get_buffer_mut( &mut self, index: usize ) -> &mut [u8] {
-        self.get_mut( index ).unwrap().as_bytes_mut()
+        self[ index ].as_bytes_mut()
     }
 }
 
@@ -252,7 +252,7 @@ impl ModelInstance {
                                 layer.call( (input,), None ).unwrap()
                             },
                             AnyUnaryLayer::Dropout( LayerDropout { ref name, rate } ) => {
-                                let rate: f32 = rate.clone().into();
+                                let rate: f32 = rate.into();
                                 let kwargs = PyDict::new( py );
                                 kwargs.set_item( "name", name.to_string() ).unwrap();
                                 kwargs.set_item( "trainable", is_trainable ).unwrap();

@@ -256,7 +256,7 @@ impl LayerConstant {
     }
 
     pub fn from_slice< T >( shape: Shape, slice: &[T] ) -> Self where T: DataType + 'static {
-        let data: Vec< _ > = slice.iter().cloned().collect();
+        let data: Vec< _ > = slice.to_vec();
         Self::new( SliceSource::from( shape, data ) )
     }
 }

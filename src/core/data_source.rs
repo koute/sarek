@@ -352,7 +352,7 @@ impl< T > IntoDataSourceVec for &[T] where T: DataSource + Clone + 'static {
 
 impl IntoDataSourceVec for &[Arc< dyn DataSource >] {
     fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
-        self.iter().cloned().collect()
+        self.to_vec()
     }
 }
 
@@ -378,6 +378,7 @@ macro_rules! impl_data_source_list {
                     counter += 1;
                 )*
 
+                #[allow(clippy::drop_copy)]
                 std::mem::drop( counter );
                 None
             }

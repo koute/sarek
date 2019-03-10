@@ -38,8 +38,8 @@ impl< 'a > SquareSlice< 'a > {
         unsafe {
             SquareSlice {
                 pointer: slice.as_mut_ptr(),
-                pointer_end: slice.as_mut_ptr().offset( slice.len() as isize ),
-                size: size,
+                pointer_end: slice.as_mut_ptr().add( slice.len() ),
+                size,
                 stride: size,
                 phantom: PhantomData
             }
@@ -60,7 +60,7 @@ impl< 'a > SquareSlice< 'a > {
         }
 
         unsafe {
-            let pointer = self.pointer.offset( (y * self.stride + x) as isize );
+            let pointer = self.pointer.add( y * self.stride + x );
             if ENABLE_BOUND_CHECKS {
                 assert!( pointer >= self.pointer );
                 assert!( pointer < self.pointer_end );
@@ -77,11 +77,11 @@ impl< 'a > SquareSlice< 'a > {
         }
 
         unsafe {
-            let pointer = self.pointer.offset( (y * self.stride) as isize );
+            let pointer = self.pointer.add( y * self.stride );
             if ENABLE_BOUND_CHECKS {
                 assert!( pointer >= self.pointer );
                 assert!( pointer < self.pointer_end );
-                assert!( pointer.offset( self.size as isize ) <= self.pointer_end );
+                assert!( pointer.add( self.size ) <= self.pointer_end );
             }
 
             std::slice::from_raw_parts_mut( pointer, self.size )
@@ -103,7 +103,7 @@ impl< 'a > SquareSlice< 'a > {
             };
 
             let ur = SquareSlice {
-                pointer: self.pointer.offset( half_size as isize ),
+                pointer: self.pointer.add( half_size ),
                 pointer_end: self.pointer_end,
                 size: half_size,
                 stride,
@@ -111,7 +111,7 @@ impl< 'a > SquareSlice< 'a > {
             };
 
             let ll = SquareSlice {
-                pointer: self.pointer.offset( (stride * half_size) as isize ),
+                pointer: self.pointer.add( stride * half_size ),
                 pointer_end: self.pointer_end,
                 size: half_size,
                 stride,
@@ -119,7 +119,7 @@ impl< 'a > SquareSlice< 'a > {
             };
 
             let lr = SquareSlice {
-                pointer: self.pointer.offset( ((stride + 1) * half_size) as isize ),
+                pointer: self.pointer.add( (stride + 1) * half_size ),
                 pointer_end: self.pointer_end,
                 size: half_size,
                 stride,
@@ -500,7 +500,7 @@ impl OrthogonalGenerator {
         where F: FnMut( usize ) -> f32
     {
         let size = to_nearest_power_of_two( width, height );
-        let angles = (0..size - 1).into_iter().map( get_angle );
+        let angles = (0..size - 1).map( get_angle );
 
         self.buffer.clear();
         self.buffer.reserve( size * size );
@@ -520,7 +520,8 @@ impl OrthogonalGenerator {
     }
 
     pub fn generate_into( &mut self, width: usize, height: usize, rng: &mut dyn RngCore, output: &mut Vec< f32 > ) {
-        let dist = rand::distributions::Uniform::new_inclusive( 3.14 * 0.125, 3.14 * 0.875 );
+        use std::f32::consts::PI;
+        let dist = rand::distributions::Uniform::new_inclusive( PI * 0.125, PI * 0.875 );
         self.generate_with_angles_into( width, height, |_| dist.sample( rng ) as f32, output );
     }
 }
