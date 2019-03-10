@@ -4,6 +4,7 @@ use {
     },
     sarek::{
         Context,
+        DataSourceListExt,
         Model,
         Trainer,
         layers::{
@@ -31,8 +32,8 @@ fn main() {
     let ctx = Context::new().unwrap();
 
     let training_data = training_data.join().unwrap();
-
-    let model = Model::new_sequential( training_data.input_shape(), (
+    let input_shape = training_data.input_list().data_sources().next().unwrap().shape();
+    let model = Model::new_sequential( input_shape, (
         LayerConvolution::new( 4, (3, 3) ),
         LayerActivation::new(),
         LayerMaxPooling::new( (2, 2) ),

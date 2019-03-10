@@ -20,3 +20,13 @@ pub fn assert_f32_slice_eq( lhs: &[f32], rhs: &[f32] ) {
 pub fn assert_f32_eq( lhs: f32, rhs: f32 ) {
     assert!( are_approximately_equal( lhs, rhs ), format!( "left: {:?}, right: {:?}", lhs, rhs ) );
 }
+
+pub fn calculate_mean_and_variance( buffer: &[f32] ) -> (f32, f32) {
+    let mean = buffer.iter().cloned().sum::< f32 >() / buffer.len() as f32;
+    let variance = buffer.iter().cloned().map( |x| {
+        let a = x - mean;
+        a * a
+    }).sum::< f32 >() / buffer.len() as f32;
+
+    (mean, variance)
+}

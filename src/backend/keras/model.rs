@@ -4,7 +4,6 @@ use {
         types::{
             PyDict,
             PyList,
-            PyObjectRef,
             PyTuple
         }
     },
@@ -31,7 +30,8 @@ use {
             },
             model::{
                 ModelInstanceState,
-                OutputKind
+                OutputKind,
+                RawBufferList
             }
         },
         core::{
@@ -40,7 +40,9 @@ use {
             },
             data_source::{
                 DataSource,
-                DataSourceExt
+                DataSourceExt,
+                DataSourceList,
+                DataSourceListExt
             },
             raw_array_source::{
                 RawArraySource
@@ -57,16 +59,24 @@ use {
                 Activation
             },
             layers::{
-                Layer,
+                AnyBinaryLayer,
+                AnyNullaryLayer,
+                AnyUnaryLayer,
                 LayerActivation,
+                LayerAdd,
+                LayerConstant,
                 LayerConvolution,
                 LayerDense,
                 LayerDropout,
-                LayerMultiply,
-                LayerPrototype,
+                LayerMul,
                 LayerReshape,
-                LayerShift,
                 LayerSoftmax
+            },
+            model::{
+                Node,
+                Model,
+                NullaryLayer,
+                UnaryLayer
             },
             optimizers::{
                 Optimizer,
@@ -80,23 +90,16 @@ use {
     }
 };
 
+impl RawBufferList for Vec< PyArray > {
+    fn get_buffer_mut( &mut self, index: usize ) -> &mut [u8] {
+        self.get_mut( index ).unwrap().as_bytes_mut()
+    }
+}
+
 /// A compiled `Model`.
 pub struct ModelInstance {
     _ctx: Context,
     obj: PyObject
-}
-
-fn constant_layer< 'a >( py: Python< 'a >, input_shape: &Shape, values: &[f32] ) -> &'a PyObjectRef {
-    let mut array = TypedPyArray::< f32 >::new( py, input_shape.prepend( 1 ) );
-    array.as_slice_mut().copy_from_slice( values );
-
-    let tf_ns = py.import( "tensorflow" ).unwrap_py( py );
-    let keras_ns = tf_ns.getattr( "keras" ).unwrap_py( py );
-    let layers_ns = keras_ns.getattr( "layers" ).unwrap_py( py );
-    let tensor = tf_ns.getattr( "constant" ).unwrap_py( py ).call( (array.as_py_obj(),), None ).unwrap_py( py );
-    let kwargs = PyDict::new( py );
-    kwargs.set_item( "tensor", tensor ).unwrap_py( py );
-    layers_ns.getattr( "Input" ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py )
 }
 
 impl ModelInstance {
@@ -114,190 +117,255 @@ impl ModelInstance {
             let initializers_ns = keras_ns.getattr( "initializers" ).unwrap();
             let constant = initializers_ns.getattr( "constant" ).unwrap();
             let is_trainable = training_opts.is_some();
-            let mut input_shape = state.model.input_shape();
-
-            let initial_layer = {
-                let kwargs = PyDict::new( py );
-                kwargs.set_item( "shape", PyTuple::new( py, &input_shape ) ).unwrap();
-                keras_ns.getattr( "Input" ).unwrap().call( (), Some( kwargs ) ).unwrap()
-            };
-
-            let model_inputs = PyList::new( py, &[initial_layer.clone()] );
-            let mut last_layer = initial_layer.clone();
-
-            for (layer_index, layer) in state.model.layers.iter_mut().enumerate() {
-                let mut kwargs = PyDict::new( py );
-
-                match layer {
-                    Layer::Activation( LayerActivation { name, activation } ) => {
-                        kwargs.set_item( "name", name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-
-                        let layer = match activation {
-                            Activation::ELU =>
-                                layers_ns.getattr( "Activation" ).unwrap().call( ("elu",), Some( kwargs ) ).unwrap(),
-                            Activation::LeakyReLU => {
-                                kwargs.set_item( "negative_slope", 0.01 ).unwrap();
-                                layers_ns.getattr( "ReLU" ).unwrap().call( (), Some( kwargs ) ).unwrap()
-                            },
-                            Activation::Logistic =>
-                                layers_ns.getattr( "Activation" ).unwrap().call( ("sigmoid",), Some( kwargs ) ).unwrap(),
-                            Activation::ReLU =>
-                                layers_ns.getattr( "Activation" ).unwrap().call( ("relu",), Some( kwargs ) ).unwrap(),
-                            Activation::TanH =>
-                                layers_ns.getattr( "Activation" ).unwrap().call( ("tanh",), Some( kwargs ) ).unwrap()
-                        };
-                        last_layer = layer.call( (last_layer,), None ).unwrap();
-                    },
-                    Layer::Convolution( layer ) => {
-                        if input_shape.dimension_count() == 2 {
-                            let target_shape = PyTuple::new( py, &input_shape.append( 1 ) );
-                            kwargs.set_item( "target_shape", target_shape ).unwrap();
-                            kwargs.set_item( "trainable", is_trainable ).unwrap();
-                            let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            last_layer = layer.call( (last_layer,), None ).unwrap();
-
-                            kwargs = PyDict::new( py );
-                        }
-
-                        kwargs.set_item( "name", layer.name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        kwargs.set_item( "filters", layer.filter_count ).unwrap();
-                        kwargs.set_item( "kernel_size", (layer.kernel_size.1, layer.kernel_size.0) ).unwrap();
-
-                        if let Some( weights ) = layer.weights.take() {
-                            let (bias_array, weight_array) =
-                                Self::weights_into_arrays_for_convolutional_layer( py, &input_shape, &layer, &weights );
-
-                            let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
-                            let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
-
-                            kwargs.set_item( "bias_initializer", bias_array ).unwrap();
-                            kwargs.set_item( "kernel_initializer", weight_array ).unwrap();
-                        }
-
-                        let layer_obj = layers_ns.getattr( "Conv2D" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
-                        last_layer = layer_obj.call( (last_layer,), None ).unwrap();
-                        {
-                            let target_shape = layer.output_shape( &input_shape );
-                            let target_shape = PyTuple::new( py, &target_shape );
-                            kwargs = PyDict::new( py );
-                            kwargs.set_item( "target_shape", target_shape ).unwrap();
-                            let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
-                            last_layer = layer_obj.call( (last_layer,), None ).unwrap();
-                        }
-                    },
-                    Layer::Dense( layer ) => {
-                        {
-                            // Dense layers expect a one dimensional input.
-                            let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            last_layer = layer.call( (last_layer,), None ).unwrap();
-
-                            kwargs = PyDict::new( py );
-                        }
-
-                        if let Some( weights ) = layer.weights.take() {
-                            let (bias_array, weight_array) =
-                                Self::weights_into_arrays_for_dense_layer( py, &input_shape, &layer, &weights );
-
-                            let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
-                            let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
-
-                            kwargs.set_item( "bias_initializer", bias_array ).unwrap();
-                            kwargs.set_item( "kernel_initializer", weight_array ).unwrap();
-                        }
-
-                        kwargs.set_item( "name", layer.name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        let layer = layers_ns.getattr( "Dense" ).unwrap().call( (layer.size,), Some( kwargs ) ).unwrap();
-                        last_layer = layer.call( (last_layer,), None ).unwrap();
-                    },
-                    Layer::Dropout( LayerDropout { name, rate } ) => {
-                        let rate: f32 = rate.clone().into();
-                        kwargs.set_item( "name", name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        let layer = layers_ns.getattr( "Dropout" ).unwrap().call( (rate,), Some( kwargs ) ).unwrap();
-                        last_layer = layer.call( (last_layer,), None ).unwrap();
-                    },
-                    Layer::IntoCategory( _ ) => {
-                        let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), None ).unwrap();
-                        last_layer = layer.call( (last_layer,), None ).unwrap();
-                    },
-                    Layer::MaxPooling( layer ) => {
-                        if input_shape.dimension_count() == 2 {
-                            let target_shape = PyTuple::new( py, &input_shape.append( 1 ) );
-                            kwargs.set_item( "target_shape", target_shape ).unwrap();
-                            kwargs.set_item( "trainable", is_trainable ).unwrap();
-                            let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                            last_layer = layer.call( (last_layer,), None ).unwrap();
-
-                            kwargs = PyDict::new( py );
-                        }
-
-                        kwargs.set_item( "pool_size", (layer.pool_size.1, layer.pool_size.0) ).unwrap();
-                        kwargs.set_item( "name", layer.name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        // Padding is explained here:
-                        //   https://stackoverflow.com/questions/37674306
-                        kwargs.set_item( "padding", "same" ).unwrap();
-                        let layer_obj = layers_ns.getattr( "MaxPool2D" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                        last_layer = layer_obj.call( (last_layer,), None ).unwrap();
-                        {
-                            let target_shape = layer.output_shape( &input_shape );
-                            let target_shape = PyTuple::new( py, &target_shape );
-                            kwargs = PyDict::new( py );
-                            kwargs.set_item( "target_shape", target_shape ).unwrap();
-                            let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
-                            last_layer = layer_obj.call( (last_layer,), None ).unwrap();
-                        }
-                    },
-                    Layer::Reshape( LayerReshape { name, shape } ) => {
-                        let target_shape = PyTuple::new( py, shape );
-                        kwargs.set_item( "target_shape", target_shape ).unwrap();
-                        kwargs.set_item( "name", name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                        last_layer = layer.call( (last_layer,), None ).unwrap();
-                    },
-                    ref layer @ Layer::Multiply( .. ) |
-                    ref layer @ Layer::Shift( .. ) => {
-                        let (kind, name, values) = match layer {
-                            Layer::Multiply( LayerMultiply { name, values } ) => ("Multiply", name, values),
-                            Layer::Shift( LayerShift { name, values } ) => ("Add", name, values),
-                            _ => unreachable!()
-                        };
-
-                        let extra_layer = constant_layer( py, &input_shape, &values );
-                        model_inputs.append( extra_layer ).unwrap_py( py );
-
-                        kwargs.set_item( "name", name.to_string() ).unwrap_py( py );
-                        let layer = layers_ns.getattr( kind ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py );
-                        let inputs = PyList::new( py, &[last_layer, extra_layer] );
-                        last_layer = layer.call( (inputs,), None ).unwrap_py( py );
-                    },
-                    Layer::Softmax( LayerSoftmax { name } ) => {
-                        kwargs.set_item( "name", name.to_string() ).unwrap();
-                        kwargs.set_item( "trainable", is_trainable ).unwrap();
-                        let layer = layers_ns.getattr( "Activation" ).unwrap().call( ("softmax",), Some( kwargs ) ).unwrap();
-                        last_layer = layer.call( (last_layer,), None ).unwrap();
-                    }
-                }
-
-                input_shape = layer.output_shape( &input_shape );
+            let model_input_list = PyList::empty( py );
+            let mut model_outputs = Vec::with_capacity( state.model.outputs().len() );
+            for _ in 0..state.model.outputs().len() {
+                model_outputs.push( None );
             }
 
-            if last_layer == initial_layer {
-                let kwargs = PyDict::new( py );
-                let shape = PyTuple::new( py, &input_shape );
-                kwargs.set_item( "target_shape", shape ).unwrap();
+            let mut model_extra_inputs = Vec::new();
 
-                let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
-                last_layer = layer.call( (last_layer,), None ).unwrap_py( py );
+            let _: Result< (), () > = state.model.traverse_mut( |model, inputs, node_index| {
+                let input_shapes: Vec< _ > = model
+                    .get_node( node_index )
+                    .inputs()
+                    .map( |node_index| model.get_node( node_index ).output_shape().clone() )
+                    .collect();
+
+                let mut input_node_shape = None;
+                let layer = match *model.get_node_mut( node_index ) {
+                    Node::Input { input_index, ref shape, .. } => {
+                        assert_eq!( input_index, model_input_list.len() );
+
+                        let kwargs = PyDict::new( py );
+                        kwargs.set_item( "shape", PyTuple::new( py, shape ) ).unwrap();
+
+                        let layer = keras_ns.getattr( "Input" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                        model_input_list.append( layer ).unwrap_py( py );
+                        input_node_shape = Some( shape.clone() );
+
+                        layer
+                    },
+                    Node::NullaryNode { ref mut layer, .. } => {
+                        let output_shape = layer.output_shape();
+                        let output_type = layer.output_type();
+                        match *layer {
+                            AnyNullaryLayer::Constant( LayerConstant { ref name, ref data } ) => {
+                                let mut array = PyArray::new( py, output_shape.prepend( data.len() ), output_type );
+                                data.gather_bytes_into( .., array.as_bytes_mut() );
+
+                                let tensor = tf_ns.getattr( "constant" ).unwrap_py( py ).call( (array.as_py_obj(),), None ).unwrap_py( py );
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "name", name.to_string() ).unwrap_py( py );
+                                kwargs.set_item( "tensor", tensor ).unwrap_py( py );
+                                let layer_obj = layers_ns.getattr( "Input" ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py );
+
+                                model_extra_inputs.push( layer_obj );
+                                layer_obj
+                            }
+                        }
+                    },
+                    Node::UnaryNode { ref mut layer, .. } => {
+                        let mut input = *inputs[0];
+                        let input_shape = input_shapes.into_iter().next().unwrap();
+                        match *layer {
+                            AnyUnaryLayer::Activation( LayerActivation { ref name, ref activation } ) => {
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "name", name.to_string() ).unwrap();
+
+                                let layer = match activation {
+                                    Activation::ELU =>
+                                        layers_ns.getattr( "Activation" ).unwrap().call( ("elu",), Some( kwargs ) ).unwrap(),
+                                    Activation::LeakyReLU => {
+                                        kwargs.set_item( "negative_slope", 0.01 ).unwrap();
+                                        layers_ns.getattr( "ReLU" ).unwrap().call( (), Some( kwargs ) ).unwrap()
+                                    },
+                                    Activation::Logistic =>
+                                        layers_ns.getattr( "Activation" ).unwrap().call( ("sigmoid",), Some( kwargs ) ).unwrap(),
+                                    Activation::ReLU =>
+                                        layers_ns.getattr( "Activation" ).unwrap().call( ("relu",), Some( kwargs ) ).unwrap(),
+                                    Activation::TanH =>
+                                        layers_ns.getattr( "Activation" ).unwrap().call( ("tanh",), Some( kwargs ) ).unwrap()
+                                };
+                                layer.call( (input,), None ).unwrap()
+                            },
+                            AnyUnaryLayer::Convolution( ref mut layer ) => {
+                                if input_shape.dimension_count() == 2 {
+                                    let kwargs = PyDict::new( py );
+                                    let target_shape = PyTuple::new( py, &input_shape.append( 1 ) );
+                                    kwargs.set_item( "target_shape", target_shape ).unwrap();
+                                    kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                    let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                                    input = layer.call( (input,), None ).unwrap();
+                                }
+
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "name", layer.name.to_string() ).unwrap();
+                                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                kwargs.set_item( "filters", layer.filter_count ).unwrap();
+                                kwargs.set_item( "kernel_size", (layer.kernel_size.1, layer.kernel_size.0) ).unwrap();
+
+                                if let Some( weights ) = layer.weights.take() {
+                                    let (bias_array, weight_array) =
+                                        Self::weights_into_arrays_for_convolutional_layer( py, &input_shape, &layer, &weights );
+
+                                    let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
+                                    let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
+
+                                    kwargs.set_item( "bias_initializer", bias_array ).unwrap();
+                                    kwargs.set_item( "kernel_initializer", weight_array ).unwrap();
+                                }
+
+                                let layer_obj = layers_ns.getattr( "Conv2D" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
+                                input = layer_obj.call( (input,), None ).unwrap();
+                                {
+                                    let target_shape = layer.output_shape( &input_shape );
+                                    let target_shape = PyTuple::new( py, &target_shape );
+                                    let kwargs = PyDict::new( py );
+                                    kwargs.set_item( "target_shape", target_shape ).unwrap();
+                                    let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
+                                    layer_obj.call( (input,), None ).unwrap()
+                                }
+                            },
+                            AnyUnaryLayer::Dense( ref mut layer ) => {
+                                {
+                                    // Dense layers expect a one dimensional input.
+                                    let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), None ).unwrap();
+                                    input = layer.call( (input,), None ).unwrap();
+                                }
+
+                                let kwargs = PyDict::new( py );
+                                if let Some( weights ) = layer.weights.take() {
+                                    let (bias_array, weight_array) =
+                                        Self::weights_into_arrays_for_dense_layer( py, &input_shape, &layer, &weights );
+
+                                    let bias_array = constant.call( (bias_array.as_py_obj(),), None ).unwrap();
+                                    let weight_array = constant.call( (weight_array.as_py_obj(),), None ).unwrap();
+
+                                    kwargs.set_item( "bias_initializer", bias_array ).unwrap();
+                                    kwargs.set_item( "kernel_initializer", weight_array ).unwrap();
+                                }
+
+                                kwargs.set_item( "name", layer.name.to_string() ).unwrap();
+                                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                let layer = layers_ns.getattr( "Dense" ).unwrap().call( (layer.size,), Some( kwargs ) ).unwrap();
+                                layer.call( (input,), None ).unwrap()
+                            },
+                            AnyUnaryLayer::Dropout( LayerDropout { ref name, rate } ) => {
+                                let rate: f32 = rate.clone().into();
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "name", name.to_string() ).unwrap();
+                                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                let layer = layers_ns.getattr( "Dropout" ).unwrap().call( (rate,), Some( kwargs ) ).unwrap();
+                                layer.call( (input,), None ).unwrap()
+                            },
+                            AnyUnaryLayer::IntoCategory( _ ) => {
+                                let layer = layers_ns.getattr( "Flatten" ).unwrap().call( (), None ).unwrap();
+                                layer.call( (input,), None ).unwrap()
+                            },
+                            AnyUnaryLayer::MaxPooling( ref layer ) => {
+                                if input_shape.dimension_count() == 2 {
+                                    let target_shape = PyTuple::new( py, &input_shape.append( 1 ) );
+                                    let kwargs = PyDict::new( py );
+                                    kwargs.set_item( "target_shape", target_shape ).unwrap();
+                                    kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                    let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                                    input = layer.call( (input,), None ).unwrap();
+                                }
+
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "pool_size", (layer.pool_size.1, layer.pool_size.0) ).unwrap();
+                                kwargs.set_item( "name", layer.name.to_string() ).unwrap();
+                                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                // Padding is explained here:
+                                //   https://stackoverflow.com/questions/37674306
+                                kwargs.set_item( "padding", "same" ).unwrap();
+                                let layer_obj = layers_ns.getattr( "MaxPool2D" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                                input = layer_obj.call( (input,), None ).unwrap();
+                                {
+                                    let target_shape = layer.output_shape( &input_shape );
+                                    let target_shape = PyTuple::new( py, &target_shape );
+                                    let kwargs = PyDict::new( py );
+                                    kwargs.set_item( "target_shape", target_shape ).unwrap();
+                                    let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap_py( py );
+                                    layer_obj.call( (input,), None ).unwrap()
+                                }
+                            },
+                            AnyUnaryLayer::Reshape( LayerReshape { ref name, ref shape } ) => {
+                                let target_shape = PyTuple::new( py, shape );
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "target_shape", target_shape ).unwrap();
+                                kwargs.set_item( "name", name.to_string() ).unwrap();
+                                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                let layer = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                                layer.call( (input,), None ).unwrap()
+                            },
+                            AnyUnaryLayer::Softmax( LayerSoftmax { ref name } ) => {
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "name", name.to_string() ).unwrap();
+                                kwargs.set_item( "trainable", is_trainable ).unwrap();
+                                let layer = layers_ns.getattr( "Activation" ).unwrap().call( ("softmax",), Some( kwargs ) ).unwrap();
+                                layer.call( (input,), None ).unwrap()
+                            }
+                        }
+                    },
+                    Node::BinaryNode { ref mut layer, .. } => {
+                        let input_1 = *inputs[0];
+                        let input_2 = *inputs[1];
+                        match *layer {
+                            AnyBinaryLayer::Add( .. ) |
+                            AnyBinaryLayer::Mul( .. ) => {
+                                let (kind, name) = match layer {
+                                    AnyBinaryLayer::Mul( LayerMul { name } ) => ("Multiply", name),
+                                    AnyBinaryLayer::Add( LayerAdd { name } ) => ("Add", name)
+                                };
+
+                                let kwargs = PyDict::new( py );
+                                kwargs.set_item( "name", name.to_string() ).unwrap_py( py );
+                                let layer = layers_ns.getattr( kind ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py );
+                                let inputs = PyList::new( py, &[input_1, input_2] );
+                                layer.call( (inputs,), None ).unwrap_py( py )
+                            }
+                        }
+                    }
+                };
+
+                for output_index in model.output_indexes_for_node( node_index ) {
+                    assert!( model_outputs[ output_index ].is_none() );
+
+                    let layer = if let Some( ref shape ) = input_node_shape {
+                        // An input node cannot be an output node,
+                        // so we add a dummy reshape layer so that
+                        // it can be our output node.
+                        let kwargs = PyDict::new( py );
+                        let shape = PyTuple::new( py, shape );
+                        kwargs.set_item( "target_shape", shape ).unwrap();
+
+                        let layer_obj = layers_ns.getattr( "Reshape" ).unwrap().call( (), Some( kwargs ) ).unwrap();
+                        layer_obj.call( (layer,), None ).unwrap_py( py )
+                    } else {
+                        layer
+                    };
+
+                    model_outputs[ output_index ] = Some( layer );
+                }
+
+                Ok( Some( layer ) )
+            });
+
+            for input in model_extra_inputs {
+                model_input_list.append( input ).unwrap_py( py );
+            }
+
+            let model_output_list = PyList::empty( py );
+            for model_output in model_outputs {
+                let model_output = model_output.expect( "internal error: an output slot wasn't filled" );
+                model_output_list.append( model_output ).unwrap_py( py );
             }
 
             let kwargs = PyDict::new( py );
-            kwargs.set_item( "inputs", model_inputs ).unwrap();
-            kwargs.set_item( "outputs", last_layer ).unwrap();
+            kwargs.set_item( "inputs", model_input_list ).unwrap();
+            kwargs.set_item( "outputs", model_output_list ).unwrap();
             let model_obj = keras_ns.getattr( "Model" ).unwrap().call( (), Some( kwargs ) )
                 .map_err( |err| py_err( py, err ) ).unwrap();
 
@@ -321,20 +389,25 @@ impl ModelInstance {
                     compile_kwargs.set_item( "optimizer", optimizer ).unwrap();
                 }
 
-                let loss = match state.output_kind {
-                    OutputKind::Regression => LossKind::MeanSquaredError,
-                    OutputKind::SparseCategory => LossKind::SparseCategoricalCrossEntropy
-                };
+                let losses = PyList::empty( py );
+                for &output_kind in &state.output_kinds {
+                    let loss = match output_kind {
+                        OutputKind::Regression => LossKind::MeanSquaredError,
+                        OutputKind::SparseCategory => LossKind::SparseCategoricalCrossEntropy
+                    };
 
-                let loss = match loss {
-                    LossKind::SparseCategoricalCrossEntropy => "sparse_categorical_crossentropy",
-                    LossKind::CategoricalCrossEntropy => "categorical_crossentropy",
-                    LossKind::MeanSquaredError => "mean_squared_error"
-                };
+                    let loss = match loss {
+                        LossKind::SparseCategoricalCrossEntropy => "sparse_categorical_crossentropy",
+                        LossKind::CategoricalCrossEntropy => "categorical_crossentropy",
+                        LossKind::MeanSquaredError => "mean_squared_error"
+                    };
+
+                    losses.append( loss ).unwrap_py( py );
+                }
 
                 let metrics = PyList::new( py, &["accuracy"] );
 
-                compile_kwargs.set_item( "loss", loss ).unwrap();
+                compile_kwargs.set_item( "loss", losses ).unwrap();
                 compile_kwargs.set_item( "metrics", metrics ).unwrap();
 
                 model_obj.getattr( "compile" ).unwrap().call( (), Some( compile_kwargs ) )
@@ -352,39 +425,45 @@ impl ModelInstance {
 
     pub(crate) fn set_weights(
         &mut self,
-        input_shape: &Shape,
-        layer: &Layer,
+        model: &Model,
+        node: &Node,
         weights: &[f32]
     ) -> Result< (), SetWeightsError >
     {
         Context::gil( |py| {
-            let weights = match layer {
-                Layer::Convolution( layer ) => {
-                    let (bias_array, weight_array) = Self::weights_into_arrays_for_convolutional_layer( py, input_shape, layer, weights );
-                    let list = PyList::empty( py );
-                    list.append( weight_array ).unwrap();
-                    list.append( bias_array ).unwrap();
-                    list
-                },
-                Layer::Dense( layer ) => {
-                    let (bias_array, weight_array) = Self::weights_into_arrays_for_dense_layer( py, input_shape, layer, weights );
-                    let list = PyList::empty( py );
-                    list.append( weight_array ).unwrap();
-                    list.append( bias_array ).unwrap();
-                    list
-                },
-                Layer::Activation( _ ) |
-                Layer::Dropout( _ ) |
-                Layer::IntoCategory( _ ) |
-                Layer::MaxPooling( _ ) |
-                Layer::Multiply( _ ) |
-                Layer::Reshape( _ ) |
-                Layer::Shift( _ ) |
-                Layer::Softmax( _ )
-                    => unreachable!()
+            let weights = match *node {
+                Node::Input { .. } => unreachable!{},
+                Node::NullaryNode { .. } => unreachable!(),
+                Node::BinaryNode { .. } => unreachable!(),
+                Node::UnaryNode { ref layer, .. } => {
+                    let input_shape = model.input_shapes_of( node ).next().unwrap();
+                    match *layer {
+                        AnyUnaryLayer::Convolution( ref layer ) => {
+                            let (bias_array, weight_array) = Self::weights_into_arrays_for_convolutional_layer( py, &input_shape, layer, weights );
+                            let list = PyList::empty( py );
+                            list.append( weight_array ).unwrap();
+                            list.append( bias_array ).unwrap();
+                            list
+                        },
+                        AnyUnaryLayer::Dense( ref layer ) => {
+                            let (bias_array, weight_array) = Self::weights_into_arrays_for_dense_layer( py, &input_shape, layer, weights );
+                            let list = PyList::empty( py );
+                            list.append( weight_array ).unwrap();
+                            list.append( bias_array ).unwrap();
+                            list
+                        },
+                        AnyUnaryLayer::Activation( _ ) |
+                        AnyUnaryLayer::Dropout( _ ) |
+                        AnyUnaryLayer::IntoCategory( _ ) |
+                        AnyUnaryLayer::MaxPooling( _ ) |
+                        AnyUnaryLayer::Reshape( _ ) |
+                        AnyUnaryLayer::Softmax( _ )
+                            => unreachable!()
+                    }
+                }
             };
 
-            let layer_name = layer.name().to_string();
+            let layer_name = node.name().unwrap().to_string();
             let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name,), None ).unwrap();
             layer.getattr( py, "set_weights" ).unwrap().call( py, (weights,), None ).map_err( |err| py_err( py, err ) ).unwrap();
         });
@@ -425,11 +504,11 @@ impl ModelInstance {
         (bias_array, weight_array)
     }
 
-    pub(crate) fn get_weights( &self, input_shape: &Shape, layer: &Layer )
+    pub(crate) fn get_weights( &self, model: &Model, node: &Node )
         -> Result< impl ToArrayRef + DataSource, GetWeightsError >
     {
-        let weight_count = layer.weight_count( &input_shape );
-        let layer_name_s = layer.name().to_string();
+        let weight_count = model.weight_count_of( node );
+        let layer_name_s = node.name().unwrap().to_string();
         let output = Context::gil( move |py| {
             let layer = self.obj.getattr( py, "get_layer" ).unwrap().call( py, (layer_name_s,), None ).unwrap();
             let weights_list = layer.getattr( py, "get_weights" ).unwrap().call( py, (), None ).map_err( |err| py_err( py, err ) ).unwrap();
@@ -449,12 +528,17 @@ impl ModelInstance {
         Ok( SliceSource::from( Shape::new_1d( weight_count ), output ) )
     }
 
-    fn train_on_batch( &mut self, py: Python, inputs: &PyArray, outputs: &PyArray ) -> f32 {
-        debug_assert_eq!( inputs.shape().x(), outputs.shape().x() );
-        let batch_size = inputs.shape().x();
+    fn train_on_batch( &mut self, py: Python, batch_size: usize, input_buffers: &[PyArray], output_buffers: &[PyArray] ) -> f32 {
+        let inputs = PyList::empty( py );
+        let outputs = PyList::empty( py );
+        for buffer in input_buffers {
+            inputs.append( buffer.as_py_obj() ).unwrap_py( py );
+        }
 
-        let inputs = inputs.as_py_obj();
-        let outputs = outputs.as_py_obj();
+        for buffer in output_buffers {
+            outputs.append( buffer.as_py_obj() ).unwrap_py( py );
+        }
+
         let loss = self.obj.getattr( py, "train_on_batch" ).unwrap()
             .call( py, (inputs, outputs), None )
             .map_err( |err| py_err( py, err ) ).unwrap();
@@ -479,22 +563,22 @@ impl ModelInstance {
     }
 
     pub(crate) fn train_for_epoch< F >( &mut self, state: &ModelInstanceState, batch_size: usize, mut fill_data: F ) -> f32
-        where F: FnMut( &mut [u8], &mut [u8] ) -> bool + Send
+        where F: FnMut( &mut RawBufferList, &mut RawBufferList ) -> bool + Send
     {
-        let input_shape = state.model.input_shape();
-        let output_shape = state.model.output_shape();
-        let input_data_type = state.model.input_data_type();
-        let output_data_type = state.model.output_data_type();
-
         Context::gil( move |py| {
-            let mut inputs = PyArray::new( py, input_shape.prepend( batch_size ), input_data_type );
-            let mut outputs = PyArray::new( py, output_shape.prepend( batch_size ), output_data_type );
+            let mut input_buffers: Vec< _ > = state.model.inputs().map( |io| {
+                PyArray::new( py, io.shape.prepend( batch_size ), io.data_type )
+            }).collect();
+
+            let mut output_buffers: Vec< _ > = state.model.outputs().map( |io| {
+                PyArray::new( py, io.shape.prepend( batch_size ), io.data_type )
+            }).collect();
 
             let mut loss = 0.0;
             loop {
-                let should_train = fill_data( inputs.as_bytes_mut(), outputs.as_bytes_mut() );
+                let should_train = fill_data( &mut input_buffers, &mut output_buffers );
                 if should_train {
-                    loss += self.train_on_batch( py, &inputs, &outputs );
+                    loss += self.train_on_batch( py, batch_size, &input_buffers, &output_buffers );
                 } else {
                     break;
                 }
@@ -504,15 +588,46 @@ impl ModelInstance {
         })
     }
 
-    pub(crate) fn predict_raw< I >( &mut self, _state: &ModelInstanceState, input_data: &I ) -> RawArraySource where I: DataSource + Sync {
-        let input_shape = input_data.shape();
+    pub(crate) fn predict_raw< I >(
+        &mut self,
+        state: &ModelInstanceState,
+        input_data_list: I
+    ) -> Vec< RawArraySource >
+        where I: DataSourceList + Send
+    {
         Context::gil( move |py| {
-            let mut inputs = PyArray::new( py, input_shape.prepend( input_data.len() ), input_data.data_type() );
-            input_data.gather_bytes_into( .., inputs.as_bytes_mut() );
+            let input_buffers: Vec< _ > = state.model.inputs()
+                .zip( input_data_list.data_sources() )
+                .map( |(io, input_data)| {
+                    assert_eq!( io.data_type, input_data.data_type() ); // TODO: Check this in backend-independent `predict_raw`.
+                    let mut array = PyArray::new( py, io.shape.prepend( input_data.len() ), io.data_type );
+                    input_data.gather_bytes_into( .., array.as_bytes_mut() );
+                    array
+                }).collect();
 
-            let result = self.obj.getattr( py, "predict" ).unwrap().call( py, (inputs.as_py_obj(),), None ).map_err( |err| py_err( py, err ) ).unwrap();
-            let result = unsafe { PyArray::from_object_unchecked( py, result ) };
-            result.into_raw_array()
+            let inputs_list = PyList::empty( py );
+            for buffer in input_buffers {
+                inputs_list.append( buffer.as_py_obj() ).unwrap_py( py );
+            }
+
+            let kwargs = PyDict::new( py );
+            if state.model.inputs().len() == 0 {
+                kwargs.set_item( "steps", 1 ).unwrap_py( py );
+            }
+
+            let results_list = self.obj.getattr( py, "predict" ).unwrap_py( py ).call( py, (inputs_list,), Some( kwargs ) ).unwrap_py( py );
+            if state.model.outputs().len() == 1 {
+                let results = results_list.to_object( py );
+                let results = unsafe { PyArray::from_object_unchecked( py, results ) };
+                vec![ results.into_raw_array() ]
+            } else {
+                let results_list: &PyList = py.checked_cast_as( results_list ).unwrap();
+                results_list.iter().map( |results| {
+                    let results = results.to_object( py );
+                    let results = unsafe { PyArray::from_object_unchecked( py, results ) };
+                    results.into_raw_array()
+                }).collect()
+            }
         })
     }
 }

@@ -8,22 +8,13 @@ use {
         optimizers::*
     },
     testutils::{
-        assert_f32_eq
+        assert_f32_eq,
+        calculate_mean_and_variance
     }
 };
 
 fn init_logger() {
     let _ = env_logger::try_init();
-}
-
-fn calculate_mean_and_variance( buffer: &[f32] ) -> (f32, f32) {
-    let mean = buffer.iter().cloned().sum::< f32 >() / buffer.len() as f32;
-    let variance = buffer.iter().cloned().map( |x| {
-        let a = x - mean;
-        a * a
-    }).sum::< f32 >() / buffer.len() as f32;
-
-    (mean, variance)
 }
 
 fn get_testing_loss_classification( batch_size: usize, inputs: &[f32], expected_outputs: &[u32] ) -> Loss {
@@ -266,6 +257,8 @@ fn test_input_normalization( inputs: &[f32], expected_mean: f32, expected_varian
 
     let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
     let outputs = instance.predict( &inputs );
+    assert_eq!( outputs.len(), 1 );
+    let outputs = outputs.into_iter().next().unwrap();
     let outputs = outputs.to_slice::< f32 >().unwrap();
     assert!( outputs.iter().cloned().all( |x| !x.is_nan() ), "The output contains NaNs: {:?}", outputs );
 
@@ -282,7 +275,7 @@ fn test_input_normalization_only_one_element() {
         1.0, 2.0, 3.0, 4.0
     ];
 
-    test_input_normalization( inputs, 0.0, 0.0 );
+    test_input_normalization( inputs, 2.5, 1.25 );
 }
 
 

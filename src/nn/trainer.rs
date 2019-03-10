@@ -35,16 +35,25 @@ use {
             },
             data_source::{
                 DataSource,
-                DataSourceExt
+                DataSourceExt,
+                DataSourceList,
+                DataSourceListExt
+            },
+            slice_source::{
+                SliceSource
             }
         },
         nn::{
             layers::{
-                LayerMultiply,
-                LayerShift
+                LayerAdd,
+                LayerConstant,
+                LayerMul
             },
             model::{
                 Model
+            },
+            model::{
+                NullaryLayer
             },
             training_opts::{
                 TrainingOpts
@@ -69,8 +78,8 @@ pub enum TrainerInitializationError {
 impl Error for TrainerInitializationError {}
 
 pub struct Trainer< I, O >
-    where I: DataSource + Send + Sync,
-          O: DataSource + Send + Sync
+    where I: DataSourceList + Send + Sync,
+          O: DataSourceList + Send + Sync
 {
     batch_size: usize,
     model_instance: ModelInstance,
@@ -78,12 +87,14 @@ pub struct Trainer< I, O >
     position: usize,
     indexes: Vec< usize >,
     epoch_counter: usize,
-    rng: Pcg32
+    rng: Pcg32,
+    input_element_sizes: Vec< usize >,
+    output_element_sizes: Vec< usize >
 }
 
 impl< I, O > Deref for Trainer< I, O >
-    where I: DataSource + Send + Sync,
-          O: DataSource + Send + Sync
+    where I: DataSourceList + Send + Sync,
+          O: DataSourceList + Send + Sync
 {
     type Target = ModelInstance;
     fn deref( &self ) -> &Self::Target {
@@ -92,8 +103,8 @@ impl< I, O > Deref for Trainer< I, O >
 }
 
 impl< I, O > DerefMut for Trainer< I, O >
-    where I: DataSource + Send + Sync,
-          O: DataSource + Send + Sync
+    where I: DataSourceList + Send + Sync,
+          O: DataSourceList + Send + Sync
 {
     fn deref_mut( &mut self ) -> &mut Self::Target {
         &mut self.model_instance
@@ -101,7 +112,7 @@ impl< I, O > DerefMut for Trainer< I, O >
 }
 
 fn average_over< I, F >( input_data: &I, callback: F ) -> Vec< f64 >
-    where I: DataSource + Send + Sync,
+    where I: DataSource,
           F: Fn( usize, f64 ) -> f64
 {
     let element_size = input_data.shape().product();
@@ -139,7 +150,7 @@ fn average_over< I, F >( input_data: &I, callback: F ) -> Vec< f64 >
 }
 
 fn normalize_inputs< I >( input_data: &I ) -> (Vec< f32 >, Vec< f32 >)
-    where I: DataSource + Send + Sync
+    where I: DataSource
 {
     info!( "Calculating input normalization matrices..." );
 
@@ -164,8 +175,8 @@ fn normalize_inputs< I >( input_data: &I ) -> (Vec< f32 >, Vec< f32 >)
 }
 
 impl< I, O > Trainer< I, O >
-    where I: DataSource + Send + Sync,
-          O: DataSource + Send + Sync
+    where I: DataSourceList + Send + Sync,
+          O: DataSourceList + Send + Sync
 {
     pub fn new( ctx: &Context, model: Model, data_set: DataSet< I, O > ) -> Result< Self, TrainerInitializationError > {
         Self::new_with_opts( ctx, model, data_set, TrainingOpts::new() )
@@ -174,48 +185,97 @@ impl< I, O > Trainer< I, O >
     pub fn new_with_opts( ctx: &Context, mut model: Model, data_set: DataSet< I, O >, training_opts: TrainingOpts )
         -> Result< Self, TrainerInitializationError >
     {
-        let total_weight_count: usize = model.layers.iter()
-            .scan( model.input_shape(), |input_shape, layer| {
-                use crate::nn::layers::LayerPrototype;
-                let weight_count = layer.weight_count( &input_shape );
-                let output_shape = layer.output_shape( &input_shape );
-                *input_shape = output_shape;
-                Some( weight_count )
-            })
-            .sum();
+        let total_weight_count: usize = model.node_indexes().map( |node_index| {
+            let node = model.get_node( node_index );
+            model.weight_count_of( node )
+        }).sum();
 
         info!( "Creating a trainer for a model with {} weights...", total_weight_count );
 
-        let input_shape = model.input_shape();
-        assert_eq!(
-            data_set.input_shape(),
-            input_shape,
-            "Model's input shape is {}, and yet the training input data's shape is {}",
-            input_shape,
-            data_set.input_shape()
-        );
+        for (io, input_data) in model.inputs().zip( data_set.input_list().data_sources() ) {
+            assert_eq!(
+                input_data.shape(),
+                io.shape,
+                "Model's input #{} has a shape of {}, and yet the training input data's shape is {}",
+                io.index,
+                io.shape,
+                input_data.shape()
+            );
 
-        let output_shape = model.output_shape();
-        assert_eq!(
-            data_set.output_shape(),
-            output_shape,
-            "Model's output shape is {}, and yet the training output data's shape is {}",
-            output_shape,
-            data_set.output_shape()
-        );
+            assert_eq!(
+                input_data.data_type(),
+                io.data_type,
+                "Model's input #{} has a data type of {}, and yet the training input data's data type is {}",
+                io.index,
+                io.data_type,
+                input_data.data_type()
+            );
+        }
 
-        if training_opts.normalize_inputs {
-            let (mean_shift, variance_adjustment) = normalize_inputs( data_set.input_data() );
-            let layers = model.layers;
-            model.layers = Vec::with_capacity( layers.len() + 1 );
+        for (io, output_data) in model.outputs().zip( data_set.expected_output_list().data_sources() ) {
+            assert_eq!(
+                output_data.shape(),
+                io.shape,
+                "Model's output #{} has a shape of {}, and yet the training output data's shape is {}",
+                io.index,
+                io.shape,
+                output_data.shape()
+            );
 
-            model.layers.push( LayerShift::new( mean_shift ).into() );
-            model.layers.push( LayerMultiply::new( variance_adjustment ).into() );
-            model.layers.extend( layers.into_iter() );
+            assert_eq!(
+                output_data.data_type(),
+                io.data_type,
+                "Model's output #{} has a data type of {}, and yet the training output data's data type is {}",
+                io.index,
+                io.data_type,
+                output_data.data_type()
+            );
+        }
+
+        let input_element_sizes: Vec< _ > =
+            model.inputs().map( |io| io.shape.product() * io.data_type.byte_size() ).collect();
+        let output_element_sizes: Vec< _ > =
+            model.outputs().map( |io| io.shape.product() * io.data_type.byte_size() ).collect();
+
+        if training_opts.normalize_inputs && data_set.len() > 1 {
+            let model_inputs: Vec< _ > = model.inputs().collect();
+            let model_outputs: Vec< _ > = model.outputs().collect();
+            model.modify( |builder| {
+                for (io, input_data) in model_inputs.into_iter().zip( data_set.input_list().data_sources() ) {
+                    let (mean_shift, variance_adjustment) = normalize_inputs( &input_data );
+                    let mean_shift = SliceSource::from( io.shape.clone(), mean_shift );
+                    let variance_adjustment = SliceSource::from( io.shape.clone(), variance_adjustment );
+
+                    let outputs = builder.get_node( io.node_index ).outputs();
+                    let input_node = builder.get_node( io.node_index );
+                    let normalized_input_node = input_node
+                        .clone()
+                        .chain_into_first_input(
+                            LayerConstant::new( mean_shift ).into_node( builder ),
+                            LayerAdd::new()
+                        )
+                        .chain_into_first_input(
+                            LayerConstant::new( variance_adjustment ).into_node( builder ),
+                            LayerMul::new()
+                        );
+
+                    for output_node in outputs {
+                        output_node.replace_input( input_node.clone(), normalized_input_node.clone() );
+                    }
+
+                    let model_outputs_to_replace = model_outputs.iter()
+                        .filter( |output| output.node_index == input_node.node_index() )
+                        .map( |output| output.index );
+
+                    for model_output_index in model_outputs_to_replace {
+                        builder.set_output( model_output_index, normalized_input_node.clone() );
+                    }
+                }
+            });
         }
 
         let mut rng = Pcg32::seed_from_u64( 123456 );
-        initialize_weights( ctx, &mut rng, &mut model, data_set.input_data() )?;
+        initialize_weights( ctx, &mut rng, &mut model, &data_set.input_list() )?;
 
         let batch_size = training_opts.batch_size.unwrap_or( 32 );
         let model_instance = ModelInstance::compile( ctx, model, Some( training_opts ) )?;
@@ -228,10 +288,14 @@ impl< I, O > Trainer< I, O >
             position: 0,
             indexes: (0..length).collect(),
             epoch_counter: 0,
-            rng
+            rng,
+            input_element_sizes,
+            output_element_sizes
         };
 
         trainer.shuffle();
+
+        info!( "Model is ready for training" );
         Ok( trainer )
     }
 
@@ -255,13 +319,8 @@ impl< I, O > Trainer< I, O >
             info!( "Starting training on a data set with {} elements...", self.data_set.len() );
         }
 
-        let input_data = self.data_set.input_data();
-        let output_data = self.data_set.expected_output_data();
         let length = self.data_set.len();
         let epoch_size = length;
-
-        let input_element_size = input_data.shape().product() * input_data.data_type().byte_size();
-        let output_element_size = output_data.shape().product() * output_data.data_type().byte_size();
 
         let mut batch_index = 0;
         let mut count = 0;
@@ -270,6 +329,8 @@ impl< I, O > Trainer< I, O >
         let rng = &mut self.rng;
         let data_set = &self.data_set;
         let batch_size = self.batch_size;
+        let input_element_sizes = &self.input_element_sizes;
+        let output_element_sizes = &self.output_element_sizes;
 
         let now = Instant::now();
         let loss = self.model_instance.train_for_epoch( batch_size, move |inputs, outputs| {
@@ -283,15 +344,23 @@ impl< I, O > Trainer< I, O >
                 *position += 1;
                 count += 1;
 
-                data_set.input_data().gather_bytes_into(
-                    index,
-                    &mut inputs[ batch_index * input_element_size..(batch_index + 1) * input_element_size ]
-                );
+                for (nth, input_data) in data_set.input_list().data_sources().enumerate() {
+                    let element_size = input_element_sizes[ nth ];
+                    let buffer = inputs.get_buffer_mut( nth );
+                    input_data.gather_bytes_into(
+                        index,
+                        &mut buffer[ batch_index * element_size..(batch_index + 1) * element_size ]
+                    );
+                }
 
-                data_set.expected_output_data().gather_bytes_into(
-                    index,
-                    &mut outputs[ batch_index * output_element_size..(batch_index + 1) * output_element_size ]
-                );
+                for (nth, output_data) in data_set.expected_output_list().data_sources().enumerate() {
+                    let element_size = output_element_sizes[ nth ];
+                    let buffer = outputs.get_buffer_mut( nth );
+                    output_data.gather_bytes_into(
+                        index,
+                        &mut buffer[ batch_index * element_size..(batch_index + 1) * element_size ]
+                    );
+                }
 
                 batch_index += 1;
                 if batch_index == batch_size {

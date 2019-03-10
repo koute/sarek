@@ -13,7 +13,8 @@ use {
     },
     testutils::{
         assert_f32_slice_eq,
-        assert_f32_eq
+        assert_f32_eq,
+        calculate_mean_and_variance
     }
 };
 
@@ -21,14 +22,52 @@ fn init_logger() {
     let _ = env_logger::try_init();
 }
 
+fn test_graph_prediction< F >(
+    callback: F,
+    input_shapes: &[Shape],
+    inputs: &[&[f32]],
+    expected_output_shapes: &[Shape],
+    expected_outputs: &[&[f32]]
+)
+    where F: FnOnce( &mut ModelBuilder )
+{
+    assert_eq!( inputs.len(), input_shapes.len() );
+    assert_eq!( expected_outputs.len(), expected_output_shapes.len() );
+
+    let ctx = Context::new().unwrap();
+    let model = Model::new_graph( callback );
+
+    let mut instance = ModelInstance::new( &ctx, model ).unwrap();
+    let inputs: Vec< _ > = inputs.iter().zip( input_shapes ).map( |(&input, input_shape)| {
+        SliceSource::from( input_shape.clone(), input )
+    }).collect();
+
+    let outputs = instance.predict( &inputs );
+    assert_eq!( outputs.len(), expected_outputs.len() );
+
+    let iter = outputs.into_iter()
+        .zip( expected_outputs.into_iter() )
+        .zip( expected_output_shapes );
+
+    for ((output, expected_output), expected_shape) in iter {
+        assert_eq!( output.shape(), *expected_shape );
+        assert_f32_slice_eq(
+            output.to_slice::< f32 >().unwrap(),
+            expected_output
+        );
+    }
+}
+
 fn test_prediction< I >( layers: I, input_shape: Shape, inputs: &[f32], expected_outputs: &[f32], expected_output_shape: Shape )
-    where I: IntoLayerIter
+    where I: UnaryLayerList
 {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( input_shape.clone(), layers );
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
     let inputs = SliceSource::from( input_shape, inputs );
     let output = instance.predict( &inputs );
+    assert_eq!( output.len(), 1 );
+    let output = output.into_iter().next().unwrap();
     assert_eq!( output.shape(), expected_output_shape );
     assert_f32_slice_eq(
         output.to_slice::< f32 >().unwrap(),
@@ -37,7 +76,7 @@ fn test_prediction< I >( layers: I, input_shape: Shape, inputs: &[f32], expected
 }
 
 fn test_prediction_exact< I, T >( layers: I, inputs: &[f32], input_count: usize, expected_outputs: &[T], expected_output_shape: Shape )
-    where I: IntoLayerIter,
+    where I: UnaryLayerList,
           T: DataType + PartialEq + fmt::Debug
 {
     assert_eq!( inputs.len() % input_count, 0 );
@@ -48,6 +87,8 @@ fn test_prediction_exact< I, T >( layers: I, inputs: &[f32], input_count: usize,
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
     let inputs = SliceSource::from( input_shape, inputs );
     let output = instance.predict( &inputs );
+    assert_eq!( output.len(), 1 );
+    let output = output.into_iter().next().unwrap();
     assert_eq!( output.shape(), expected_output_shape );
     assert_eq!(
         output.to_slice::< T >().unwrap(),
@@ -66,7 +107,7 @@ fn training_opts( learning_rate: f32 ) -> TrainingOpts {
 }
 
 fn test_backpropagation< L >( layer: L, input_shape: Shape, inputs: &[f32], output_errors: &[f32], expected_input_errors: &[f32] )
-    where L: Into< Layer >
+    where L: UnaryLayerList
 {
     let kind: Kind = Kind::OutputErrors( output_errors );
     test_backpropagation_generic( layer, input_shape, inputs, kind, expected_input_errors )
@@ -78,7 +119,7 @@ enum Kind< 'a, T = f32 > where T: DataType {
 }
 
 fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &[f32], kind: Kind< T >, expected_input_errors: &[f32] )
-    where L: Into< Layer >, T: DataType
+    where L: UnaryLayerList, T: DataType
 {
     // Here we extract the given layer's backpropagated input errors
     // and compare them to the expected ones.
@@ -111,10 +152,10 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( network_input.len(), (
         LayerDense::new( inputs.len() )
-            .set_weights( original_weights.into() )
-            .set_name( "dense_layer" ),
+            .with_weights( original_weights.into() )
+            .with_name( "dense_layer" ),
         LayerReshape::new( input_shape ),
-        layer.into()
+        layer
     ));
 
     let network_input = SliceSource::from( network_input.len().into(), network_input );
@@ -126,6 +167,8 @@ fn test_backpropagation_generic< L, T >( layer: L, input_shape: Shape, inputs: &
                 let mut instance = ModelInstance::new( &ctx, model.clone() ).unwrap();
                 instance.predict( &network_input )
             };
+            assert_eq!( output.len(), 1 );
+            let output = output.into_iter().next().unwrap();
             let output_slice = output.to_slice::< f32 >().unwrap();
 
             // Now we calculate what our expected outputs should be
@@ -193,7 +236,7 @@ fn test_training< I >(
     learning_rate: f32,
     expected_new_weights: &[f32]
 )
-    where I: Into< Layer >
+    where I: UnaryLayer
 {
     let layer = layer.into();
     let layer_name = layer.name().clone();
@@ -201,7 +244,7 @@ fn test_training< I >(
     let model = Model::new_sequential( input_shape.clone(), layer );
 
     let inputs = SliceSource::from( input_shape, inputs );
-    let output_shape = model.output_shape();
+    let output_shape = model.outputs().next().unwrap().shape;
 
     let expected_outputs = SliceSource::from( output_shape, expected_outputs );
     let data_set = DataSet::new( &inputs, expected_outputs );
@@ -249,8 +292,8 @@ fn test_layer_dense_prediction() {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( 3, (
         LayerDense::new( 2 )
-            .set_name( "layer" )
-            .set_weights( WEIGHTS.into() )
+            .with_name( "layer" )
+            .with_weights( WEIGHTS.into() )
     ));
 
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
@@ -261,6 +304,8 @@ fn test_layer_dense_prediction() {
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
     let output = instance.predict( &inputs );
+    assert_eq!( output.len(), 1 );
+    let output = output.into_iter().next().unwrap();
     assert_f32_slice_eq(
         output.to_slice::< f32 >().unwrap(),
         OUTPUTS
@@ -298,8 +343,8 @@ fn test_layer_dense_simple_training_one_input_one_output() {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( INPUTS.len(), (
         LayerDense::new( OUTPUTS.len() )
-            .set_name( "layer" )
-            .set_weights( WEIGHTS.into() )
+            .with_name( "layer" )
+            .with_weights( WEIGHTS.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -361,8 +406,8 @@ fn test_layer_dense_simple_training_one_input_three_outputs() {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( 1, (
         LayerDense::new( 3 )
-            .set_name( "layer" )
-            .set_weights( WEIGHTS.into() )
+            .with_name( "layer" )
+            .with_weights( WEIGHTS.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -422,8 +467,8 @@ fn test_layer_dense_simple_training_three_inputs_two_outputs() {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( 3, (
         LayerDense::new( 2 )
-            .set_name( "layer" )
-            .set_weights( WEIGHTS.into() )
+            .with_name( "layer" )
+            .with_weights( WEIGHTS.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -504,11 +549,11 @@ fn test_layer_dense_simple_training_backpropagation() {
     let ctx = Context::new().unwrap();
     let model = Model::new_sequential( 2, (
         LayerDense::new( 2 )
-            .set_name( "layer_1" )
-            .set_weights( WEIGHTS_1.into() ),
+            .with_name( "layer_1" )
+            .with_weights( WEIGHTS_1.into() ),
         LayerDense::new( 2 )
-            .set_name( "layer_2" )
-            .set_weights( WEIGHTS_2.into() )
+            .with_name( "layer_2" )
+            .with_weights( WEIGHTS_2.into() )
     ));
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
@@ -519,6 +564,8 @@ fn test_layer_dense_simple_training_backpropagation() {
 
     let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
     let output = instance.predict( &inputs );
+    assert_eq!( output.len(), 1 );
+    let output = output.into_iter().next().unwrap();
     assert_f32_slice_eq(
         output.to_slice::< f32 >().unwrap(),
         OUTPUTS_2
@@ -548,7 +595,7 @@ fn test_layer_activation_relu_prediction() {
     const OUTPUTS: &'static [f32] = &[ 0.0, 1.5 ];
 
     test_prediction(
-        LayerActivation::new().set_activation( Activation::ReLU ),
+        LayerActivation::new().with_activation( Activation::ReLU ),
         INPUTS.len().into(),
         INPUTS,
         OUTPUTS,
@@ -565,7 +612,7 @@ fn test_layer_activation_relu_backpropagation() {
     let expected_input_errors = &[ 0.0, output_errors[1] ];
 
     test_backpropagation(
-        LayerActivation::new().set_activation( Activation::ReLU ),
+        LayerActivation::new().with_activation( Activation::ReLU ),
         inputs.len().into(),
         inputs,
         output_errors,
@@ -592,7 +639,7 @@ fn test_layer_activation_leaky_relu_prediction() {
     ];
 
     test_prediction(
-        LayerActivation::new().set_activation( Activation::LeakyReLU ),
+        LayerActivation::new().with_activation( Activation::LeakyReLU ),
         INPUTS.len().into(),
         INPUTS,
         expected_outputs,
@@ -611,7 +658,7 @@ fn test_layer_activation_leaky_relu_backpropagation() {
         output_errors[1]
     ];
     test_backpropagation(
-        LayerActivation::new().set_activation( Activation::LeakyReLU ),
+        LayerActivation::new().with_activation( Activation::LeakyReLU ),
         inputs.len().into(),
         inputs,
         output_errors,
@@ -630,7 +677,7 @@ fn test_layer_activation_elu_prediction() {
     ];
 
     test_prediction(
-        LayerActivation::new().set_activation( Activation::ELU ),
+        LayerActivation::new().with_activation( Activation::ELU ),
         INPUTS.len().into(),
         INPUTS,
         expected_outputs,
@@ -649,7 +696,7 @@ fn test_layer_activation_elu_backpropagation() {
         output_errors[1]
     ];
     test_backpropagation(
-        LayerActivation::new().set_activation( Activation::ELU ),
+        LayerActivation::new().with_activation( Activation::ELU ),
         inputs.len().into(),
         inputs,
         output_errors,
@@ -668,7 +715,7 @@ fn test_layer_activation_tanh_prediction() {
     ];
 
     test_prediction(
-        LayerActivation::new().set_activation( Activation::TanH ),
+        LayerActivation::new().with_activation( Activation::TanH ),
         INPUTS.len().into(),
         INPUTS,
         expected_outputs,
@@ -687,7 +734,7 @@ fn test_layer_activation_tanh_backpropagation() {
         (1.0 - inputs[1].tanh() * inputs[1].tanh()) * output_errors[1]
     ];
     test_backpropagation(
-        LayerActivation::new().set_activation( Activation::TanH ),
+        LayerActivation::new().with_activation( Activation::TanH ),
         inputs.len().into(),
         inputs,
         output_errors,
@@ -706,7 +753,7 @@ fn test_layer_activation_logistic_prediction() {
     ];
 
     test_prediction(
-        LayerActivation::new().set_activation( Activation::Logistic ),
+        LayerActivation::new().with_activation( Activation::Logistic ),
         INPUTS.len().into(),
         INPUTS,
         expected_outputs,
@@ -727,7 +774,7 @@ fn test_layer_activation_logistic_backpropagation() {
         (o_2 * (1.0 - o_2)) * output_errors[1]
     ];
     test_backpropagation(
-        LayerActivation::new().set_activation( Activation::Logistic ),
+        LayerActivation::new().with_activation( Activation::Logistic ),
         inputs.len().into(),
         inputs,
         output_errors,
@@ -818,6 +865,8 @@ fn test_layer_reshape() {
     let mut instance = ModelInstance::new( &ctx, model ).unwrap();
     let input_source = SliceSource::from( input_shape, inputs );
     let output = instance.predict( &input_source );
+    assert_eq!( output.len(), 1 );
+    let output = output.into_iter().next().unwrap();
     assert_eq!( output.shape(), target_shape );
     assert_f32_slice_eq(
         output.to_slice::< f32 >().unwrap(),
@@ -989,7 +1038,7 @@ fn test_layer_convolution_prediction_input1x1_kernel1x1_filter1x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1).into(),
         INPUTS,
         expected_outputs,
@@ -1020,7 +1069,7 @@ fn test_layer_convolution_prediction_input1x1x2_kernel1x1_filter1x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1, 2).into(),
         INPUTS,
         expected_outputs,
@@ -1050,7 +1099,7 @@ fn test_layer_convolution_prediction_input1x1_kernel1x1_filter2x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1).into(),
         INPUTS,
         expected_outputs,
@@ -1087,7 +1136,7 @@ fn test_layer_convolution_prediction_input1x1x2_kernel1x1_filter2x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1, 2).into(),
         INPUTS,
         expected_outputs,
@@ -1117,7 +1166,7 @@ fn test_layer_convolution_prediction_input2x2_kernel1x1_filter1x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (1, 1) ).with_weights( WEIGHTS.into() ),
         (2, 2).into(),
         INPUTS,
         expected_outputs,
@@ -1149,7 +1198,7 @@ fn test_layer_convolution_prediction_input2x2_kernel2x1_filter1x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 1, (2, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (2, 1) ).with_weights( WEIGHTS.into() ),
         (2, 2).into(),
         INPUTS,
         expected_outputs,
@@ -1181,7 +1230,7 @@ fn test_layer_convolution_prediction_input2x2_kernel2x2_filter1x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 1, (2, 2) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (2, 2) ).with_weights( WEIGHTS.into() ),
         (2, 2).into(),
         INPUTS,
         expected_outputs,
@@ -1232,7 +1281,7 @@ fn test_layer_convolution_prediction_input3x3_kernel2x2_filter1x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 1, (2, 2) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (2, 2) ).with_weights( WEIGHTS.into() ),
         (3, 3).into(),
         INPUTS,
         expected_outputs,
@@ -1287,7 +1336,7 @@ fn test_layer_convolution_prediction_input2x2x2_kernel2x2_filter2x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 2, (2, 2) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (2, 2) ).with_weights( WEIGHTS.into() ),
         (2, 2, 2).into(),
         INPUTS,
         expected_outputs,
@@ -1366,7 +1415,7 @@ fn test_layer_convolution_prediction_input3x3_kernel2x2_filter2x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 2, (2, 2) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (2, 2) ).with_weights( WEIGHTS.into() ),
         (3, 3).into(),
         INPUTS,
         expected_outputs,
@@ -1396,7 +1445,7 @@ fn test_layer_convolution_backpropagation_input1x1_kernel1x1_filter1x() {
     ];
 
     test_backpropagation(
-        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1).into(),
         INPUTS,
         OUTPUT_ERRORS,
@@ -1431,7 +1480,7 @@ fn test_layer_convolution_backpropagation_input1x1_kernel1x1_filter2x() {
     ];
 
     test_backpropagation(
-        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1).into(),
         INPUTS,
         OUTPUT_ERRORS,
@@ -1510,7 +1559,7 @@ fn test_layer_convolution_backpropagation_input3x3_kernel2x2_filter2x() {
     ];
 
     test_backpropagation(
-        LayerConvolution::new( 2, (2, 2) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (2, 2) ).with_weights( WEIGHTS.into() ),
         (3, 3).into(),
         INPUTS,
         OUTPUT_ERRORS,
@@ -1544,7 +1593,7 @@ fn test_layer_convolution_training_input1x1_kernel1x1_filter1x() {
     ];
 
     test_training(
-        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (1, 1) ).with_weights( WEIGHTS.into() ),
         (1, 1, 1).into(),
         INPUTS,
         EXPECTED_OUTPUTS,
@@ -1596,7 +1645,7 @@ fn test_layer_convolution_training_input2x2_kernel1x1_filter1x() {
     ];
 
     test_training(
-        LayerConvolution::new( 1, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 1, (1, 1) ).with_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
         EXPECTED_OUTPUTS,
@@ -1671,7 +1720,7 @@ fn test_layer_convolution_training_input2x2_kernel1x1_filter2x() {
     ];
 
     test_training(
-        LayerConvolution::new( 2, (1, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (1, 1) ).with_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
         EXPECTED_OUTPUTS,
@@ -1711,7 +1760,7 @@ fn test_layer_convolution_training_input2x2_kernel2x1_filter2x() {
     ];
 
     test_prediction(
-        LayerConvolution::new( 2, (2, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (2, 1) ).with_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
         OUTPUTS,
@@ -1755,7 +1804,7 @@ fn test_layer_convolution_training_input2x2_kernel2x1_filter2x() {
     ];
 
     test_training(
-        LayerConvolution::new( 2, (2, 1) ).set_weights( WEIGHTS.into() ),
+        LayerConvolution::new( 2, (2, 1) ).with_weights( WEIGHTS.into() ),
         (2, 2, 1).into(),
         INPUTS,
         EXPECTED_OUTPUTS,
@@ -1907,7 +1956,7 @@ fn test_layer_max_pooling_prediction_input3x3_pool2x2() {
 }
 
 #[test]
-fn test_layer_shift() {
+fn test_layer_add_to_a_constant() {
     const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
     const DELTA: &'static [f32] = &[ 1.0, 2.0, 3.0, 4.0 ];
     const EXPECTED_OUTPUTS: &'static [f32] = &[
@@ -1917,17 +1966,53 @@ fn test_layer_shift() {
         INPUTS[3] + DELTA[3]
     ];
 
-    test_prediction(
-        LayerShift::new( DELTA.into() ),
-        (2, 2).into(),
-        INPUTS,
-        EXPECTED_OUTPUTS,
-        (2, 2).into()
+    test_graph_prediction(
+        |builder| {
+            builder
+                .add_input( (2, 2).into() )
+                .chain_into_first_input(
+                    LayerConstant::from_slice( (2, 2).into(), DELTA ).into_node( builder ),
+                    LayerAdd::new(),
+                )
+                .add_as_output();
+        },
+        &[(2, 2).into()],
+        &[INPUTS],
+        &[(2, 2).into()],
+        &[EXPECTED_OUTPUTS]
     );
 }
 
 #[test]
-fn test_layer_multiply() {
+fn test_layer_add_to_another_input() {
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+    const DELTA: &'static [f32] = &[ 1.0, 2.0, 3.0, 4.0 ];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[
+        INPUTS[0] + DELTA[0],
+        INPUTS[1] + DELTA[1],
+        INPUTS[2] + DELTA[2],
+        INPUTS[3] + DELTA[3]
+    ];
+
+    test_graph_prediction(
+        |builder| {
+            builder
+                .add_input( (2, 2).into() )
+                .chain_into_first_input(
+                    builder.add_input( (2, 2).into() ),
+                    LayerAdd::new(),
+                )
+                .add_as_output();
+        },
+        &[(2, 2).into(), (2, 2).into()],
+        &[INPUTS, DELTA],
+        &[(2, 2).into()],
+        &[EXPECTED_OUTPUTS]
+    );
+}
+
+#[test]
+fn test_layer_mul() {
     const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
     const DELTA: &'static [f32] = &[ 1.0, 2.0, 3.0, 4.0 ];
     const EXPECTED_OUTPUTS: &'static [f32] = &[
@@ -1937,11 +2022,95 @@ fn test_layer_multiply() {
         INPUTS[3] * DELTA[3]
     ];
 
-    test_prediction(
-        LayerMultiply::new( DELTA.into() ),
-        (2, 2).into(),
-        INPUTS,
-        EXPECTED_OUTPUTS,
-        (2, 2).into()
+    test_graph_prediction(
+        |builder| {
+            builder
+                .add_input( (2, 2).into() )
+                .chain_into_first_input(
+                    LayerConstant::from_slice( (2, 2).into(), DELTA ).into_node( builder ),
+                    LayerMul::new(),
+                )
+                .add_as_output();
+        },
+        &[(2, 2).into()],
+        &[INPUTS],
+        &[(2, 2).into()],
+        &[EXPECTED_OUTPUTS]
+    );
+}
+
+#[test]
+fn test_layer_constant() {
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+
+    let ctx = Context::new().unwrap();
+    let model = Model::new_graph( |builder| {
+        LayerConstant::from_slice( (1, 2).into(), INPUTS )
+            .into_node( builder )
+            .add_as_output();
+    });
+
+    let mut instance = ModelInstance::new( &ctx, model ).unwrap();
+    let outputs = instance.predict(&());
+    assert_eq!( outputs.len(), 1 );
+
+    let output = outputs.into_iter().next().unwrap();
+    assert_eq!( output.shape(), (1, 2).into() );
+
+    assert_f32_slice_eq(
+        output.to_slice::< f32 >().unwrap(),
+        INPUTS
+    );
+}
+
+#[test]
+fn test_layer_dense_output_normalization() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+    const DELTA: &'static [f32] = &[ 2.0, 3.0 ];
+
+    let model = Model::new_graph( |builder| {
+        builder.add_input( 2.into() )
+            .chain_into_first_input(
+                LayerConstant::from_slice( 2.into(), DELTA ).into_node( builder ),
+                LayerMul::new()
+            )
+            .chain(
+                LayerDense::new( 16 )
+            )
+            .add_as_output();
+    });
+
+    let inputs = SliceSource::from( 2.into(), INPUTS );
+    let dummy_outputs: Vec< f32 > = (0..32).into_iter().map( |_| 0.0 ).collect();
+    let dummy_outputs = SliceSource::from( 16.into(), dummy_outputs );
+    let data_set = DataSet::new( inputs.clone(), dummy_outputs );
+
+    let ctx = Context::new().unwrap();
+    let mut instance = Trainer::new( &ctx, model, data_set ).unwrap();
+    let outputs = instance.predict( &inputs );
+    let output = outputs.into_iter().next().unwrap();
+    let output = output.to_slice::< f32 >().unwrap();
+    let (mean, variance) = calculate_mean_and_variance( output );
+    assert_f32_eq( mean, 0.02 );
+    assert_f32_eq( variance, 0.9 );
+}
+
+#[test]
+fn test_prediction_one_input_two_outputs() {
+    init_logger();
+
+    const INPUTS: &'static [f32] = &[ -0.5, 1.5, 0.2, 0.3 ];
+    test_graph_prediction(
+        |builder| {
+            let input = builder.add_input( (2, 2).into() );
+            input.clone().add_as_output();
+            input.add_as_output();
+        },
+        &[(2, 2).into()],
+        &[INPUTS],
+        &[(2, 2).into(), (2, 2).into()],
+        &[INPUTS, INPUTS]
     );
 }

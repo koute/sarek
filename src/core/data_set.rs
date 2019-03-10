@@ -5,15 +5,18 @@ use {
         },
         iter::{
             FusedIterator
+        },
+        sync::{
+            Arc
         }
     },
     crate::{
         core::{
             data_source::{
-                DataSource
-            },
-            shape::{
-                Shape
+                DataSource,
+                DataSourceList,
+                DataSourceListExt,
+                IntoDataSourceVec
             },
             split_data_source::{
                 SplitDataSource
@@ -24,64 +27,91 @@ use {
 
 /// A data set used for training.
 pub struct DataSet< I, O >
-    where I: DataSource,
-          O: DataSource
+    where I: DataSourceList,
+          O: DataSourceList
 {
-    input_data: I,
-    expected_output_data: O
+    input_list: I,
+    expected_output_list: O,
+    length: usize
 }
 
+type SplitDataSet =
+    DataSet<
+        Vec< SplitDataSource< Arc< DataSource > > >,
+        Vec< SplitDataSource< Arc< DataSource > > >
+    >;
+
 impl< I, O > DataSet< I, O >
-    where I: DataSource,
-          O: DataSource
+    where I: DataSourceList,
+          O: DataSourceList
 {
-    pub fn new( input_data: I, expected_output_data: O ) -> Self {
+    pub fn new( input_list: I, expected_output_list: O ) -> Self {
         assert_eq!(
-            input_data.len(),
-            expected_output_data.len(),
-            "The training input data has {} samples which is not equal to the amount of samples in the expected output data where we have {} samples",
-            input_data.len(),
-            expected_output_data.len()
+            input_list.data_source_count(),
+            expected_output_list.data_source_count(),
+            "The training input has {} data sources which is not equal to the amount of data sources in the expected output data where we have {}",
+            input_list.data_source_count(),
+            expected_output_list.data_source_count()
         );
 
+        assert!( input_list.data_source_count() > 0 );
+        assert!( expected_output_list.data_source_count() > 0 );
+
+        let length = input_list.data_source_get( 0 ).unwrap().len();
+        for (index, input_data) in input_list.data_sources().enumerate() {
+            assert_eq!(
+                input_data.len(),
+                length,
+                "The input data #{} has {} samples which is not equal to the amount of samples in the input data #0 where we have {} samples",
+                index,
+                input_data.len(),
+                length
+            );
+        }
+
+        for (index, expected_output_data) in expected_output_list.data_sources().enumerate() {
+            assert_eq!(
+                expected_output_data.len(),
+                length,
+                "The expected output data #{} has {} samples which is not equal to the amount of samples in the input data #0 where we have {} samples",
+                index,
+                expected_output_data.len(),
+                length
+            );
+        }
+
         DataSet {
-            input_data,
-            expected_output_data
+            input_list,
+            expected_output_list,
+            length
         }
     }
 
     pub fn len( &self ) -> usize {
-        self.input_data.len()
+        self.length
     }
 
     pub fn is_empty( &self ) -> bool {
         self.len() == 0
     }
 
-    pub fn input_shape( &self ) -> Shape {
-        self.input_data.shape()
+    pub fn input_list< 'a >( &'a self ) -> impl DataSourceList + 'a {
+        &self.input_list
     }
 
-    pub fn output_shape( &self ) -> Shape {
-        self.expected_output_data.shape()
+    pub fn expected_output_list< 'a >( &'a self ) -> impl DataSourceList + 'a {
+        &self.expected_output_list
     }
 
-    pub fn input_data( &self ) -> &I {
-        &self.input_data
-    }
-
-    pub fn expected_output_data( &self ) -> &O {
-        &self.expected_output_data
-    }
-
-    pub fn as_ref( &self ) -> DataSet< &I, &O > {
+    pub fn as_ref< 'a >( &'a self ) -> DataSet< &'a I, &'a O > where &'a I: DataSourceList, &'a O: DataSourceList {
         DataSet {
-            input_data: &self.input_data,
-            expected_output_data: &self.expected_output_data
+            input_list: &self.input_list,
+            expected_output_list: &self.expected_output_list,
+            length: self.length
         }
     }
 
-    /// Clones the data sources and splits the set into two at a given index.
+    /// Splits the data set into two at a given index.
     ///
     /// ```rust
     /// # use sarek::{Shape, DataSource, DataSet, SliceSource};
@@ -93,37 +123,62 @@ impl< I, O > DataSet< I, O >
     ///
     /// assert_eq!( src.len(), 2 );
     ///
-    /// let (src_train, src_test) = src.clone_and_split_at_index( 1 );
+    /// let (src_train, src_test) = src.split_at_index( 1 );
     ///
     /// assert_eq!( src_train.len(), 1 );
     /// assert_eq!( src_test.len(), 1 );
     /// ```
-    pub fn clone_and_split_at_index( self, index: usize )
-        -> (
-            DataSet< SplitDataSource< I >, SplitDataSource< O > >,
-            DataSet< SplitDataSource< I >, SplitDataSource< O > >
-        )
-        where I: Clone, O: Clone
+    pub fn split_at_index( self, index: usize ) -> (SplitDataSet, SplitDataSet)
+        where I: IntoDataSourceVec, O: IntoDataSourceVec
     {
         assert!( index <= self.len() );
 
         let left_range = 0..index;
         let right_range = index..self.len();
 
+        let input_list = self.input_list.into_vec();
+        let expected_output_list = self.expected_output_list.into_vec();
+
+        let left_input_list: Vec< _ > =
+            input_list
+            .iter()
+            .cloned()
+            .map( |data| SplitDataSource::new( data, left_range.clone() ) )
+            .collect();
+        let left_expected_output_list: Vec< _ > =
+            expected_output_list
+            .iter()
+            .cloned()
+            .map( |data| SplitDataSource::new( data, left_range.clone() ) )
+            .collect();
+
+        let right_input_list: Vec< _ > =
+            input_list
+            .into_iter()
+            .map( |data| SplitDataSource::new( data, right_range.clone() ) )
+            .collect();
+        let right_expected_output_list: Vec< _ > =
+            expected_output_list
+            .into_iter()
+            .map( |data| SplitDataSource::new( data, right_range.clone() ) )
+            .collect();
+
         let right = DataSet {
-            input_data: SplitDataSource::new( self.input_data.clone(), right_range.clone() ),
-            expected_output_data: SplitDataSource::new( self.expected_output_data.clone(), right_range )
+            input_list: left_input_list,
+            expected_output_list: left_expected_output_list,
+            length: left_range.len()
         };
 
         let left = DataSet {
-            input_data: SplitDataSource::new( self.input_data, left_range.clone() ),
-            expected_output_data: SplitDataSource::new( self.expected_output_data, left_range )
+            input_list: right_input_list,
+            expected_output_list: right_expected_output_list,
+            length: right_range.len()
         };
 
         (left, right)
     }
 
-    /// Clones the data sources and splits the set into two.
+    /// Splits the data set into two.
     ///
     /// ```rust
     /// # use sarek::{Shape, DataSource, DataSet, SliceSource};
@@ -140,18 +195,14 @@ impl< I, O > DataSet< I, O >
     /// assert_eq!( src_train.len(), 1 );
     /// assert_eq!( src_test.len(), 1 );
     /// ```
-    pub fn clone_and_split( self, split_at: f32 )
-        -> (
-            DataSet< SplitDataSource< I >, SplitDataSource< O > >,
-            DataSet< SplitDataSource< I >, SplitDataSource< O > >
-        )
-        where I: Clone, O: Clone
+    pub fn clone_and_split( self, split_at: f32 ) -> (SplitDataSet, SplitDataSet)
+        where I: IntoDataSourceVec, O: IntoDataSourceVec
     {
         assert!( split_at >= 0.0 );
         assert!( split_at <= 1.0 );
 
         let index = (self.len() as f32 * split_at) as usize;
-        self.clone_and_split_at_index( index )
+        self.split_at_index( index )
     }
 
     /// Returns an iterator over `chunk_size` elements of the data set at a time,
@@ -177,31 +228,42 @@ impl< I, O > DataSet< I, O >
     /// assert!( chunks.next().is_none() );
     /// ```
     pub fn chunks< 'a >( &'a self, chunk_size: usize ) ->
-        impl ExactSizeIterator< Item = DataSet< impl DataSource + 'a, impl DataSource + 'a > > + FusedIterator
+        impl ExactSizeIterator< Item = DataSet< impl DataSourceList + 'a, impl DataSourceList + 'a > > + FusedIterator
     {
-        struct Iter< 'a, I, O > where I: DataSource, O: DataSource {
+        struct Iter< 'a, I, O > where I: DataSourceList, O: DataSourceList {
             chunk_size: usize,
-            data_set: &'a DataSet< I, O >,
+            input_list: &'a I,
+            expected_output_list: &'a O,
+            length: usize,
             index: usize
         }
 
-        impl< 'a, I, O > Iterator for Iter< 'a, I, O > where I: DataSource, O: DataSource {
-            type Item = DataSet< SplitDataSource< &'a I >, SplitDataSource< &'a O > >;
+        impl< 'a, I, O > Iterator for Iter< 'a, I, O > where I: DataSourceList, O: DataSourceList {
+            type Item = DataSet< Vec< SplitDataSource< &'a dyn DataSource > >, Vec< SplitDataSource< &'a dyn DataSource > > >;
             fn next( &mut self ) -> Option< Self::Item > {
-                if self.index == self.data_set.len() {
+                if self.index == self.length {
                     return None;
                 }
 
-                let next_index = min( self.index + self.chunk_size, self.data_set.len() );
+                let next_index = min( self.index + self.chunk_size, self.length );
                 let range = self.index..next_index;
                 self.index = next_index;
 
-                let subset = DataSet {
-                    input_data: SplitDataSource::new( &self.data_set.input_data, range.clone() ),
-                    expected_output_data: SplitDataSource::new( &self.data_set.expected_output_data, range )
-                };
+                // TODO: This is horribly slow. Cache those `Vec`s somehow.
+                let input_list: Vec< _ > =
+                    self.input_list.data_sources()
+                    .map( |data| SplitDataSource::new( data, range.clone() ) )
+                    .collect();
+                let expected_output_list: Vec< _ > =
+                    self.expected_output_list.data_sources()
+                    .map( |data| SplitDataSource::new( data, range.clone() ) )
+                    .collect();
 
-                Some( subset )
+                Some( DataSet {
+                    input_list,
+                    expected_output_list,
+                    length: range.end - range.start
+                })
             }
 
             fn size_hint( &self ) -> (usize, Option< usize >) {
@@ -209,7 +271,7 @@ impl< I, O > DataSet< I, O >
                     return (0, Some( 0 ));
                 }
 
-                let total_length = self.data_set.len();
+                let total_length = self.length;
                 let mut remaining = total_length / self.chunk_size;
                 if total_length * self.chunk_size != 0 {
                     remaining += 1;
@@ -219,12 +281,14 @@ impl< I, O > DataSet< I, O >
             }
         }
 
-        impl< 'a, I, O > ExactSizeIterator for Iter< 'a, I, O > where I: DataSource, O: DataSource {}
-        impl< 'a, I, O > FusedIterator for Iter< 'a, I, O > where I: DataSource, O: DataSource {}
+        impl< 'a, I, O > ExactSizeIterator for Iter< 'a, I, O > where I: DataSourceList, O: DataSourceList {}
+        impl< 'a, I, O > FusedIterator for Iter< 'a, I, O > where I: DataSourceList, O: DataSourceList {}
 
         Iter {
             chunk_size,
-            data_set: self,
+            input_list: &self.input_list,
+            expected_output_list: &self.expected_output_list,
+            length: self.length,
             index: 0
         }
     }
@@ -235,6 +299,9 @@ mod tests {
     use {
         crate::{
             core::{
+                data_source::{
+                    DataSourceListExt
+                },
                 shape::{
                     Shape
                 },
@@ -258,7 +325,8 @@ mod tests {
 
         assert_eq!( data_set.len(), 2 );
         assert_eq!( data_set.is_empty(), false );
-        assert_eq!( data_set.input_shape(), Shape::new_2d( 1, 2 ) );
+        assert_eq!( data_set.input_list().data_sources().len(), 1 );
+        assert_eq!( data_set.input_list().data_sources().next().unwrap().shape(), Shape::new_2d( 1, 2 ) );
     }
 
 }

@@ -1,6 +1,7 @@
 use {
     sarek::{
         Context,
+        DataSourceListExt,
         Model,
         Trainer,
         TrainingOpts,
@@ -32,7 +33,8 @@ fn main() {
     let ctx = Context::new().unwrap();
 
     let training_data = training_data.join().unwrap();
-    let model = Model::new_sequential( training_data.input_shape(), (
+    let input_shape = training_data.input_list().data_sources().next().unwrap().shape();
+    let model = Model::new_sequential( input_shape, (
         LayerDense::new( 512 ),
         LayerActivation::new(),
         LayerDropout::new( 0.2 ),

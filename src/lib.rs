@@ -23,14 +23,15 @@ pub mod layers {
         nn::{
             layers::{
                 LayerActivation,
+                LayerAdd,
+                LayerConstant,
                 LayerConvolution,
                 LayerDense,
                 LayerDropout,
                 LayerIntoCategory,
                 LayerMaxPooling,
-                LayerMultiply,
+                LayerMul,
                 LayerReshape,
-                LayerShift,
                 LayerSoftmax
             }
         }
@@ -66,7 +67,9 @@ pub use crate::{
         },
         data_source::{
             DataSource,
-            DataSourceExt
+            DataSourceExt,
+            DataSourceList,
+            DataSourceListExt
         },
         data_type::{
             DataType,
@@ -87,15 +90,20 @@ pub use crate::{
             Activation
         },
         layers::{
-            Layer,
-            LayerPrototype,
-            IntoLayerIter
+            LayerPrototype
         },
         loss::{
             Loss
         },
         model::{
             Model
+        },
+        model::{
+            BinaryLayer,
+            ModelBuilder,
+            NullaryLayer,
+            UnaryLayer,
+            UnaryLayerList
         },
         optimizers::{
             Optimizer

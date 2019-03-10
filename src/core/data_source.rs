@@ -22,6 +22,9 @@ use {
             indices::{
                 ToIndices
             },
+            maybe_owned::{
+                MaybeOwned
+            },
             shape::{
                 Shape
             },
@@ -250,12 +253,14 @@ macro_rules! impl_single_element_data_source_list {
 }
 
 impl_data_source_proxy!( ('r, S) DataSource for &'r S where S: DataSource + ?Sized );
-impl_data_source_proxy!( (S) DataSource for Arc< S > where S: DataSource + ?Sized );
+impl_data_source_proxy!( (S) DataSource for Arc< S > where S: DataSource + Send + ?Sized );
 impl_data_source_proxy!( () DataSource for Box< DataSource > );
+impl_data_source_proxy!( ('r, S) DataSource for MaybeOwned< 'r, S > where S: DataSource );
 
 impl_data_source_list_proxy!( ('r, S) DataSourceList for &'r S where S: DataSourceList + ?Sized );
 impl_data_source_list_proxy!( (S) DataSourceList for Arc< S > where S: DataSourceList + Send + ?Sized );
 impl_data_source_list_proxy!( () DataSourceList for Box< DataSourceList > );
+impl_data_source_list_proxy!( ('r, S) DataSourceList for MaybeOwned< 'r, S > where S: DataSourceList );
 
 impl_single_element_data_source_list!( () DataSourceList for Box< DataSource > );
 

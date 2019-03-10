@@ -10,6 +10,9 @@ use {
         }
     },
     std::{
+        collections::{
+            HashSet
+        },
         error::{
             Error
         }
@@ -23,7 +26,9 @@ use {
         core::{
             data_source::{
                 DataSource,
-                DataSourceExt
+                DataSourceExt,
+                DataSourceList,
+                DataSourceListExt
             },
             raw_array_source::{
                 RawArraySource
@@ -34,14 +39,19 @@ use {
         },
         nn::{
             layers::{
-                Layer,
-                LayerConvolution,
-                LayerDense,
+                AnyUnaryLayer,
+                AnyNullaryLayer,
                 LayerPrototype,
                 Weights
             },
             model::{
                 Model
+            },
+            model::{
+                BinaryLayer,
+                Node,
+                NodeIndex,
+                UnaryLayer
             }
         }
     }
@@ -63,14 +73,30 @@ fn test_calculate_variance() {
     assert_eq!( variance, 8.25 );
 }
 
-fn predict_layer< L, I >( ctx: &Context, layer: L, input_data: I )
+fn predict_unary_layer< L, I >( ctx: &Context, layer: L, input_data: I )
     -> Result< RawArraySource, InitializeWeightsError >
-    where L: Into< Layer >,
-          I: DataSource + Send + Sync
+    where L: UnaryLayer,
+          I: DataSource
 {
     let model = Model::new_sequential( input_data.shape(), layer );
     let mut instance = ModelInstance::compile( ctx, model, None )?;
-    let output = instance.predict_raw( &input_data );
+    let output = instance.predict_raw( &input_data ).into_iter().next().unwrap();
+    Ok( output )
+}
+
+fn predict_binary_layer< L, I >( ctx: &Context, layer: L, input_1: I, input_2: I )
+    -> Result< RawArraySource, InitializeWeightsError >
+    where L: BinaryLayer,
+          I: DataSource
+{
+    let model = Model::new_graph( |builder| {
+        let input_1 = builder.add_input( input_1.shape() );
+        let input_2 = builder.add_input( input_2.shape() );
+        layer.into_node( input_1, input_2 ).add_as_output();
+    });
+
+    let mut instance = ModelInstance::compile( ctx, model, None )?;
+    let output = instance.predict_raw( &[&input_1, &input_2][..] ).into_iter().next().unwrap();
     Ok( output )
 }
 
@@ -82,28 +108,6 @@ pub enum InitializeWeightsError {
 }
 
 impl Error for InitializeWeightsError {}
-
-fn get_initialization_depth( model: &Model ) -> usize {
-    let mut count = 0;
-    let mut input_shape = model.input_shape();
-    for (layer_index, layer) in model.layers.iter().enumerate() {
-        let weight_count = layer.weight_count( &input_shape );
-        input_shape = layer.output_shape( &input_shape );
-
-        if weight_count != 0 {
-            let has_preset_weights = match layer {
-                Layer::Dense( LayerDense { weights, .. } ) => weights.is_some(),
-                Layer::Convolution( LayerConvolution { weights, .. } ) => weights.is_some(),
-                _ => false
-            };
-
-            if !has_preset_weights {
-                count = layer_index + 1;
-            }
-        }
-    }
-    count
-}
 
 fn generate_normal_weights( rng: &mut RngCore, bias_count: usize, weight_count: usize, n: usize ) -> Weights {
     let factor = 2.0_f32;
@@ -118,74 +122,95 @@ fn generate_normal_weights( rng: &mut RngCore, bias_count: usize, weight_count: 
     weights
 }
 
-fn generate_initial_weights( depth: usize, rng: &mut RngCore, model: &mut Model ) -> Vec< usize > {
+fn generate_initial_weights( rng: &mut RngCore, model: &mut Model ) -> HashSet< NodeIndex > {
     info!( "Populating the model with weights..." );
 
-    let mut initialized_layers = Vec::new();
-    let mut input_shape = model.input_shape();
-    for (layer_index, layer) in model.layers.iter_mut().take( depth ).enumerate() {
-        let output_shape = layer.output_shape( &input_shape );
-        let weight_count = layer.weight_count( &input_shape );
+    let mut initialized_layers = HashSet::new();
+    for node_index in model.node_indexes() {
+        let mut input_shapes = model.input_shapes_of( model.get_node( node_index ) );
+        let node = model.get_node_mut( node_index );
 
-        let generated_weights = match *layer {
-            Layer::Dense( ref mut layer ) => {
-                let bias_count = layer.size;
+        match *node {
+            Node::Input { .. } => {},
+            Node::NullaryNode { .. } => {},
+            Node::UnaryNode { ref mut layer, .. } => {
+                debug_assert_eq!( input_shapes.len(), 1 );
+                let input_shape = input_shapes.next().unwrap();
+                let weight_count = layer.weight_count( &input_shape );
+                match *layer {
+                    AnyUnaryLayer::Dense( ref mut layer ) => {
+                        if layer.weights.is_some() {
+                            continue;
+                        }
 
-                let orthogonal_init = true;
-                if orthogonal_init {
-                    let mut weights = Weights::new();
-                    weights.get_mut().extend( (0..bias_count).map( |_| 0.0 ) );
+                        let bias_count = layer.size;
 
-                    let mut generator = OrthogonalGenerator::new();
-                    generator.generate_into( layer.size, input_shape.product(), rng, weights.get_mut() );
-                    Some( weights )
-                } else {
-                    let n = input_shape.product();
-                    let weights = generate_normal_weights( rng, bias_count, weight_count, n );
-                    Some( weights )
+                        let orthogonal_init = true;
+                        if orthogonal_init {
+                            let mut weights = Weights::new();
+                            weights.get_mut().extend( (0..bias_count).map( |_| 0.0 ) );
+
+                            let mut generator = OrthogonalGenerator::new();
+                            generator.generate_into( layer.size, input_shape.product(), rng, weights.get_mut() );
+                            layer.set_weights( weights );
+                        } else {
+                            let n = input_shape.product();
+                            let weights = generate_normal_weights( rng, bias_count, weight_count, n );
+                            layer.set_weights( weights );
+                        }
+                    },
+                    AnyUnaryLayer::Convolution( ref mut layer ) => {
+                        if layer.weights.is_some() {
+                            continue;
+                        }
+
+                        let output_shape = layer.output_shape( &input_shape );
+                        let bias_count = layer.filter_count;
+                        let n = output_shape.x() * output_shape.y() * input_shape.z();
+                        let weights = generate_normal_weights( rng, bias_count, weight_count, n );
+                        layer.set_weights( weights );
+                    },
+                    _ => {
+                        assert_eq!( weight_count, 0 );
+                        continue;
+                    }
                 }
-            },
-            Layer::Convolution( ref layer ) => {
-                let bias_count = layer.filter_count;
-                let n = output_shape.x() * output_shape.y() * input_shape.z();
-                let weights = generate_normal_weights( rng, bias_count, weight_count, n );
-                Some( weights )
-            },
-            _ => {
-                assert_eq!( weight_count, 0 );
-                None
-            }
-        };
 
-        if let Some( generated_weights ) = generated_weights {
-            layer.set_weights( generated_weights );
-            initialized_layers.push( layer_index );
+                initialized_layers.insert( node_index );
+            },
+            Node::BinaryNode { ref mut layer, .. } => {
+                debug_assert_eq!( input_shapes.len(), 2 );
+                let input_shape_1 = input_shapes.next().unwrap();
+                let input_shape_2 = input_shapes.next().unwrap();
+                let weight_count = layer.weight_count( &input_shape_1, &input_shape_2 );
+
+                assert_eq!( weight_count, 0 );
+                continue;
+            }
         }
-        input_shape = output_shape;
     }
 
-    initialized_layers.reverse();
     initialized_layers
 }
 
-fn normalize_layer_output< T >(
-    ctx: &Context,
+fn normalize_layer_output< T, F >(
     layer: &mut T,
-    layer_index: usize,
+    node_index: NodeIndex,
     target_variance: f32,
     target_mean: f32,
     bias_count: usize,
-    input_buffer: &RawArraySource,
-    mut output_buffer: RawArraySource
+    mut output_buffer: RawArraySource,
+    mut predict: F
 ) -> Result< RawArraySource, InitializeWeightsError >
-    where T: LayerPrototype + Into< Layer > + Clone
+    where T: LayerPrototype + Clone,
+          F: FnMut( T ) -> Result< RawArraySource, InitializeWeightsError >
 {
     let iteration_limit = 10;
     let allowed_margin = 0.01;
 
     let (mut mean, mut variance) = calculate_mean_and_variance( output_buffer.as_slice().expect( "expected an f32 output" ) );
     for iteration in 0..iteration_limit {
-        info!( "Layer #{}: iteration #{}: variance = {}, mean = {}", layer_index + 1, iteration + 1, variance, mean );
+        info!( "Layer {}: iteration #{}: variance = {}, mean = {}", node_index, iteration + 1, variance, mean );
 
         if (target_variance - variance).abs() <= allowed_margin {
             break;
@@ -198,7 +223,7 @@ fn normalize_layer_output< T >(
         }
         layer.set_weights( weights );
 
-        output_buffer = predict_layer( ctx, layer.clone(), &input_buffer )?;
+        output_buffer = predict( layer.clone() )?;
         let (new_mean, new_variance) = calculate_mean_and_variance( output_buffer.as_slice().expect( "expected an f32 output" ) );
 
         mean = new_mean;
@@ -211,112 +236,154 @@ fn normalize_layer_output< T >(
     }
     layer.set_weights( weights );
 
-    output_buffer = predict_layer( ctx, layer.clone(), &input_buffer )?;
+    output_buffer = predict( layer.clone() )?;
     Ok( output_buffer )
 }
 
-pub fn initialize_weights< I >
+fn collect_input_nodes(
+    model: &Model,
+    node_index: NodeIndex,
+    node_indexes: &mut HashSet< NodeIndex >
+) {
+    for input_index in model.get_node( node_index ).inputs() {
+        if node_indexes.contains( &input_index ) {
+            continue;
+        }
+
+        node_indexes.insert( input_index );
+        collect_input_nodes( model, input_index, node_indexes );
+    }
+}
+
+pub fn initialize_weights
 (
     ctx: &Context,
     rng: &mut RngCore,
     model: &mut Model,
-    input_data: I
+    input_data_list: &DataSourceList
 ) -> Result< (), InitializeWeightsError >
-    where I: DataSource + Send + Sync
 {
-    let depth = get_initialization_depth( model );
-    if depth == 0 {
+    let initialized_layers = generate_initial_weights( rng, model );
+    if initialized_layers.is_empty() || input_data_list.data_sources().len() == 0 {
         return Ok(());
     }
 
-    let mut initialized_layers = generate_initial_weights( depth, rng, model );
-
     info!( "Normalizing layer outputs..." );
 
-    let batch_size = std::cmp::min( 128, input_data.len() );
+    let mut nodes_needing_prediction = HashSet::new();
+    for &node_index in &initialized_layers {
+        collect_input_nodes( model, node_index, &mut nodes_needing_prediction );
+    }
+
+    let input_data_length = input_data_list.data_sources().next().unwrap().len();
+    assert!( input_data_list.data_sources().all( |src| src.len() == input_data_length ) );
+
+    let batch_size = std::cmp::min( 128, input_data_length );
     let indexes = {
-        let mut indexes: Vec< _ > = (0..input_data.len()).into_iter().collect();
+        let mut indexes: Vec< _ > = (0..input_data_length).into_iter().collect();
         indexes.shuffle( rng );
         indexes.truncate( batch_size );
         indexes
     };
 
-    let mut input_shape = model.input_shape();
-    let mut input_buffer = RawArraySource::new_uninitialized( batch_size, input_shape.clone(), input_data.data_type() );
-    input_data.gather_bytes_into(
-        indexes,
-        input_buffer.as_bytes_mut()
-    );
-
-    for layer_index in 0..depth {
-        let layer = &mut model.layers[ layer_index ];
-
-        let weight_count = layer.weight_count( &input_shape );
-        let output_shape = layer.output_shape( &input_shape );
-
-        if initialized_layers.last().cloned() != Some( layer_index ) {
-            if weight_count == 0 {
-                info!( "Layer #{}: no weights; only running prediction", layer_index + 1 );
-            } else {
-                info!( "Layer #{}: weights already set; only running prediction", layer_index + 1 );
-            }
-
-            let output_buffer = predict_layer( ctx, layer, input_buffer )?;
-            if log_enabled!( log::Level::Debug ) {
-                let (mean, variance) = calculate_mean_and_variance( output_buffer.as_slice().expect( "expected an f32 output" ) );
-                debug!( "Layer #{} output: variance = {}, mean = {}", layer_index + 1, variance, mean );
-            }
-
-            input_buffer = output_buffer;
-            input_shape = output_shape;
-            continue;
+    model.traverse_mut( move |model, inputs, node_index| {
+        let needs_prediction = nodes_needing_prediction.contains( &node_index );
+        let needs_normalization = initialized_layers.contains( &node_index );
+        if !needs_prediction && !needs_normalization {
+            return Ok( None );
         }
 
-        initialized_layers.pop();
+        let mut output_buffer = match *model.get_node( node_index ) {
+            Node::Input { input_index, ref shape, .. } => {
+                let input_data = &input_data_list.data_sources()[ input_index ];
+                let mut output_buffer = RawArraySource::new_uninitialized( batch_size, shape.clone(), input_data.data_type() );
+                input_data.gather_bytes_into(
+                    &indexes,
+                    output_buffer.as_bytes_mut()
+                );
 
-        let output_buffer = predict_layer( ctx, layer.clone(), &input_buffer )?;
-        let output_buffer = match layer {
-            Layer::Dense( layer ) => {
-                info!( "Layer #{}: initializing weights for a dense layer", layer_index + 1 );
-                let bias_count = layer.size;
-                let target_variance = 0.9;
-                let target_mean = 0.02;
-
-                normalize_layer_output(
-                    ctx,
-                    layer,
-                    layer_index,
-                    target_variance,
-                    target_mean,
-                    bias_count,
-                    &input_buffer,
-                    output_buffer
-                )
+                output_buffer
             },
-            Layer::Convolution( layer ) => {
-                info!( "Layer #{}: initializing weights for a convolution layer", layer_index + 1 );
-                let bias_count = layer.filter_count;
-                let target_variance = 1.0;
-                let target_mean = 0.01;
+            Node::NullaryNode { ref layer, .. } => {
+                match *layer {
+                    AnyNullaryLayer::Constant( ref layer ) => {
+                        let data = &layer.data;
+                        let mut output_buffer = RawArraySource::new_uninitialized( batch_size, data.shape(), data.data_type() );
+                        let element_size = data.shape().product() * data.data_type().byte_size();
+                        for position in 0..batch_size {
+                            data.gather_bytes_into(
+                                ..,
+                                &mut output_buffer.as_bytes_mut()[ position * element_size..(position + 1) * element_size ]
+                            );
+                        }
 
-                normalize_layer_output(
-                    ctx,
-                    layer,
-                    layer_index,
-                    target_variance,
-                    target_mean,
-                    bias_count,
-                    &input_buffer,
-                    output_buffer
-                )
+                        output_buffer
+                    }
+                }
             },
-            _ => unreachable!()
-        }?;
+            Node::UnaryNode { ref layer, .. } => {
+                assert_eq!( inputs.len(), 1 );
+                predict_unary_layer( ctx, layer.clone(), &inputs[0] )?
+            },
+            Node::BinaryNode { ref layer, .. } => {
+                assert_eq!( inputs.len(), 2 );
+                predict_binary_layer( ctx, layer.clone(), &inputs[0], &inputs[1] )?
+            }
+        };
 
-        input_buffer = output_buffer;
-        input_shape = output_shape;
-    }
+        if log_enabled!( log::Level::Debug ) {
+            let slice = output_buffer.as_slice().expect( "expected an f32 output" );
+            let (mean, variance) = calculate_mean_and_variance( slice );
+            debug!(
+                "Layer {} ({}) output: variance = {}, mean = {}",
+                node_index,
+                model.get_node( node_index ).type_name(),
+                variance,
+                mean
+            );
+        }
 
-    info!( "Initialized weights of the model!" );
-    Ok(())
+        if needs_normalization {
+            info!( "Layer {} ({}): normalizing outputs", node_index, model.get_node( node_index ).type_name() );
+            output_buffer = match *model.get_node_mut( node_index ) {
+                Node::UnaryNode { layer: AnyUnaryLayer::Dense( ref mut layer ), .. } => {
+                    let bias_count = layer.size;
+                    let target_variance = 0.9;
+                    let target_mean = 0.02;
+
+                    normalize_layer_output(
+                        layer,
+                        node_index,
+                        target_variance,
+                        target_mean,
+                        bias_count,
+                        output_buffer,
+                        |layer| predict_unary_layer( ctx, layer, &inputs[0] )
+                    )?
+                },
+                Node::UnaryNode { layer: AnyUnaryLayer::Convolution( ref mut layer ), .. } => {
+                    let bias_count = layer.filter_count;
+                    let target_variance = 1.0;
+                    let target_mean = 0.01;
+
+                    normalize_layer_output(
+                        layer,
+                        node_index,
+                        target_variance,
+                        target_mean,
+                        bias_count,
+                        output_buffer,
+                        |layer| predict_unary_layer( ctx, layer, &inputs[0] )
+                    )?
+                },
+                _ => unreachable!()
+            }
+        }
+
+        if needs_prediction {
+            Ok( Some( output_buffer ) )
+        } else {
+            Ok( None )
+        }
+    })
 }

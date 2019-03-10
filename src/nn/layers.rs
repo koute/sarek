@@ -1,11 +1,9 @@
 use {
     std::{
         fmt,
-        iter,
         ops::{
             Deref
         },
-        slice,
         sync::{
             Arc
         }
@@ -13,11 +11,21 @@ use {
     decorum,
     crate::{
         core::{
+            data_source::{
+                DataSource
+            },
+            data_type::{
+                DataType,
+                Type
+            },
             name::{
                 Name
             },
             shape::{
                 Shape
+            },
+            slice_source::{
+                SliceSource
             },
             utils::{
                 SliceDebug
@@ -26,6 +34,11 @@ use {
         nn::{
             activation::{
                 Activation
+            },
+            model::{
+                BinaryLayer,
+                NullaryLayer,
+                UnaryLayer
             }
         }
     }
@@ -79,9 +92,14 @@ impl Weights {
     }
 }
 
-pub trait LayerPrototype {
+pub trait LayerPrototype: Sized {
     fn name( &self ) -> &Name;
     fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name >;
+    fn with_name< T >( mut self, name: T ) -> Self where T: Into< Name > {
+        self.set_name( name );
+        self
+    }
+
     fn set_weights( &mut self, weights: Weights ) -> &mut Self {
         if weights.is_empty() {
             return self;
@@ -89,11 +107,31 @@ pub trait LayerPrototype {
 
         panic!( "Weights passed to a layer which has no weights" );
     }
+
+    fn with_weights( mut self, weights: Weights ) -> Self {
+        self.set_weights( weights );
+        self
+    }
+
     fn take_weights( &mut self ) -> Option< Weights > {
         None
     }
-    fn output_shape( &self, input_shape: &Shape ) -> Shape;
-    fn weight_count( &self, input_shape: &Shape ) -> usize;
+
+    fn type_name( &self ) -> &'static str {
+        let mut name = unsafe {
+            std::intrinsics::type_name::< Self >()
+        };
+
+        if let Some( index ) = name.rfind( "::" ) {
+            name = &name[ index + 2.. ];
+        }
+
+        if name.starts_with( "Layer" ) {
+            name = &name[ 5.. ];
+        }
+
+        name
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -114,7 +152,7 @@ impl LayerActivation {
         self.activation.clone()
     }
 
-    pub fn set_activation( &mut self, value: Activation ) -> &mut Self {
+    pub fn with_activation( mut self, value: Activation ) -> Self {
         self.activation = value;
         self
     }
@@ -129,13 +167,118 @@ impl LayerPrototype for LayerActivation {
         self.name = name.into();
         self
     }
+}
 
+impl UnaryLayer for LayerActivation {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         input_shape.clone()
     }
 
     fn weight_count( &self, _: &Shape ) -> usize {
         0
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LayerAdd {
+    pub(crate) name: Name
+}
+
+impl LayerAdd {
+    pub fn new() -> Self {
+        LayerAdd {
+            name: Name::new_unique()
+        }
+    }
+}
+
+impl LayerPrototype for LayerAdd {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+}
+
+impl BinaryLayer for LayerAdd {
+    fn output_shape( &self, input_shape_1: &Shape, input_shape_2: &Shape ) -> Shape {
+        assert_eq!( input_shape_1, input_shape_2 );
+        input_shape_1.clone()
+    }
+
+    fn weight_count( &self, _: &Shape, _: &Shape ) -> usize {
+        0
+    }
+}
+
+#[derive(Clone)]
+pub struct LayerConstant {
+    pub(crate) name: Name,
+    pub(crate) data: Arc< DataSource >
+}
+
+struct DataSourceDebug< 'a >( &'a dyn DataSource );
+impl< 'a > fmt::Debug for DataSourceDebug< 'a > {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        fmt.debug_struct( "DataSource" )
+            .field( "len", &self.0.len() )
+            .field( "shape", &self.0.shape() )
+            .field( "data_type", &self.0.data_type() )
+            .finish()
+    }
+}
+
+impl PartialEq for LayerConstant {
+    fn eq( &self, rhs: &LayerConstant ) -> bool {
+        self.name == rhs.name &&
+        Arc::ptr_eq( &self.data, &rhs.data )
+    }
+}
+impl Eq for LayerConstant {}
+impl fmt::Debug for LayerConstant {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        fmt.debug_struct( "LayerConstant" )
+            .field( "name", &self.name )
+            .field( "data", &DataSourceDebug( &*self.data ) )
+            .finish()
+    }
+}
+
+impl LayerConstant {
+    pub fn new< S >( data: S ) -> Self where S: DataSource + 'static {
+        LayerConstant {
+            name: Name::new_unique(),
+            data: Arc::new( data )
+        }
+    }
+
+    pub fn from_slice< T >( shape: Shape, slice: &[T] ) -> Self where T: DataType + 'static {
+        let data: Vec< _ > = slice.iter().cloned().collect();
+        Self::new( SliceSource::from( shape, data ) )
+    }
+}
+
+impl LayerPrototype for LayerConstant {
+    fn name( &self ) -> &Name {
+        &self.name
+    }
+
+    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
+        self.name = name.into();
+        self
+    }
+}
+
+impl NullaryLayer for LayerConstant {
+    fn output_shape( &self ) -> Shape {
+        self.data.shape()
+    }
+
+    fn output_type( &self ) -> Type {
+        self.data.data_type()
     }
 }
 
@@ -180,7 +323,9 @@ impl LayerPrototype for LayerConvolution {
     fn take_weights( &mut self ) -> Option< Weights > {
         self.weights.take()
     }
+}
 
+impl UnaryLayer for LayerConvolution {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         let input_dimensions = input_shape.dimension_count();
         assert!( input_dimensions == 2 || input_dimensions == 3 );
@@ -221,7 +366,7 @@ impl LayerDense {
         self.size
     }
 
-    pub fn set_size( &mut self, value: usize ) -> &mut Self {
+    pub fn with_size( mut self, value: usize ) -> Self {
         self.size = value;
         self
     }
@@ -245,7 +390,9 @@ impl LayerPrototype for LayerDense {
     fn take_weights( &mut self ) -> Option< Weights > {
         self.weights.take()
     }
+}
 
+impl UnaryLayer for LayerDense {
     fn output_shape( &self, _: &Shape ) -> Shape {
         Shape::new_1d( self.size )
     }
@@ -279,7 +426,9 @@ impl LayerPrototype for LayerDropout {
         self.name = name.into();
         self
     }
+}
 
+impl UnaryLayer for LayerDropout {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         input_shape.clone()
     }
@@ -312,7 +461,9 @@ impl LayerPrototype for LayerIntoCategory {
         self.name = name.into();
         self
     }
+}
 
+impl UnaryLayer for LayerIntoCategory {
     fn output_shape( &self, _: &Shape ) -> Shape {
         1.into()
     }
@@ -346,7 +497,9 @@ impl LayerPrototype for LayerMaxPooling {
         self.name = name.into();
         self
     }
+}
 
+impl UnaryLayer for LayerMaxPooling {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         let input_dimensions = input_shape.dimension_count();
         assert!( input_dimensions == 2 || input_dimensions == 3 );
@@ -364,32 +517,20 @@ impl LayerPrototype for LayerMaxPooling {
     }
 }
 
-#[derive(Clone, PartialEq)]
-pub struct LayerMultiply {
-    pub(crate) name: Name,
-    pub(crate) values: Arc< Vec< f32 > >
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LayerMul {
+    pub(crate) name: Name
 }
 
-impl Eq for LayerMultiply {}
-impl fmt::Debug for LayerMultiply {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        fmt.debug_struct( "LayerMultiply" )
-            .field( "name", &self.name )
-            .field( "values", &SliceDebug( &self.values ) )
-            .finish()
-    }
-}
-
-impl LayerMultiply {
-    pub fn new( values: Vec< f32 > ) -> Self {
-        Self {
-            name: Name::new_unique(),
-            values: Arc::new( values )
+impl LayerMul {
+    pub fn new() -> Self {
+        LayerMul {
+            name: Name::new_unique()
         }
     }
 }
 
-impl LayerPrototype for LayerMultiply {
+impl LayerPrototype for LayerMul {
     fn name( &self ) -> &Name {
         &self.name
     }
@@ -398,12 +539,15 @@ impl LayerPrototype for LayerMultiply {
         self.name = name.into();
         self
     }
+}
 
-    fn output_shape( &self, input_shape: &Shape ) -> Shape {
-        input_shape.clone()
+impl BinaryLayer for LayerMul {
+    fn output_shape( &self, input_shape_1: &Shape, input_shape_2: &Shape ) -> Shape {
+        assert_eq!( input_shape_1, input_shape_2 );
+        input_shape_1.clone()
     }
 
-    fn weight_count( &self, _: &Shape ) -> usize {
+    fn weight_count( &self, _: &Shape, _: &Shape ) -> usize {
         0
     }
 }
@@ -432,54 +576,12 @@ impl LayerPrototype for LayerReshape {
         self.name = name.into();
         self
     }
+}
 
+impl UnaryLayer for LayerReshape {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         assert_eq!( input_shape.product(), self.shape.product() );
         self.shape.clone()
-    }
-
-    fn weight_count( &self, _: &Shape ) -> usize {
-        0
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub struct LayerShift {
-    pub(crate) name: Name,
-    pub(crate) values: Arc< Vec< f32 > >
-}
-
-impl Eq for LayerShift {}
-impl fmt::Debug for LayerShift {
-    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-        fmt.debug_struct( "LayerShift" )
-            .field( "name", &self.name )
-            .field( "values", &SliceDebug( &self.values ) )
-            .finish()
-    }
-}
-
-impl LayerShift {
-    pub fn new( values: Vec< f32 > ) -> Self {
-        Self {
-            name: Name::new_unique(),
-            values: Arc::new( values )
-        }
-    }
-}
-
-impl LayerPrototype for LayerShift {
-    fn name( &self ) -> &Name {
-        &self.name
-    }
-
-    fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
-        self.name = name.into();
-        self
-    }
-
-    fn output_shape( &self, input_shape: &Shape ) -> Shape {
-        input_shape.clone()
     }
 
     fn weight_count( &self, _: &Shape ) -> usize {
@@ -514,7 +616,9 @@ impl LayerPrototype for LayerSoftmax {
         self.name = name.into();
         self
     }
+}
 
+impl UnaryLayer for LayerSoftmax {
     fn output_shape( &self, input_shape: &Shape ) -> Shape {
         input_shape.clone()
     }
@@ -526,49 +630,43 @@ impl LayerPrototype for LayerSoftmax {
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub enum Layer {
+pub enum AnyNullaryLayer {
+    Constant( LayerConstant )
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum AnyUnaryLayer {
     Activation( LayerActivation ),
     Convolution( LayerConvolution ),
     Dense( LayerDense ),
     Dropout( LayerDropout ),
     IntoCategory( LayerIntoCategory ),
     MaxPooling( LayerMaxPooling ),
-    Multiply( LayerMultiply ),
     Reshape( LayerReshape ),
-    Shift( LayerShift ),
     Softmax( LayerSoftmax )
 }
 
-impl Layer {
-    pub(crate) fn type_name( &self ) -> &'static str {
-        match *self {
-            Layer::Activation( .. ) => "Activation",
-            Layer::Convolution( .. ) => "Convolution",
-            Layer::Dense( .. ) => "Dense",
-            Layer::Dropout( .. ) => "Dropout",
-            Layer::IntoCategory( .. ) => "IntoCategory",
-            Layer::MaxPooling( .. ) => "MaxPooling",
-            Layer::Multiply( .. ) => "Multiply",
-            Layer::Reshape( .. ) => "Reshape",
-            Layer::Shift( .. ) => "Shift",
-            Layer::Softmax( .. ) => "Softmax"
-        }
-    }
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum AnyBinaryLayer {
+    Add( LayerAdd ),
+    Mul( LayerMul )
 }
 
 macro_rules! layer_boilerplate {
-    ($(Layer::$variant:ident( $name:ident ))*) => {
-        impl LayerPrototype for Layer {
+    (@impl_layer_prototype $enum_ty:ident $($variant:ident( $name:ident ))*) => {
+        impl LayerPrototype for $enum_ty {
             fn name( &self ) -> &Name {
                 match *self {
-                    $( Layer::$variant( ref layer ) => layer.name(), )*
+                    $( $enum_ty::$variant( ref layer ) => layer.name(), )*
                 }
             }
 
             fn set_name< T >( &mut self, name: T ) -> &mut Self where T: Into< Name > {
                 match *self {
                     $(
-                        Layer::$variant( ref mut layer ) => {
+                        $enum_ty::$variant( ref mut layer ) => {
                             layer.set_name( name );
                         },
                     )*
@@ -579,14 +677,14 @@ macro_rules! layer_boilerplate {
 
             fn take_weights( &mut self ) -> Option< Weights > {
                 match *self {
-                    $( Layer::$variant( ref mut layer ) => layer.take_weights(), )*
+                    $( $enum_ty::$variant( ref mut layer ) => layer.take_weights(), )*
                 }
             }
 
             fn set_weights( &mut self, weights: Weights ) -> &mut Self {
                 match *self {
                     $(
-                        Layer::$variant( ref mut layer ) => {
+                        $enum_ty::$variant( ref mut layer ) => {
                             layer.set_weights( weights );
                         },
                     )*
@@ -595,210 +693,115 @@ macro_rules! layer_boilerplate {
                 self
             }
 
+            fn type_name( &self ) -> &'static str {
+                match *self {
+                    $( $enum_ty::$variant( ref layer ) => layer.type_name(), )*
+                }
+            }
+        }
+    };
+
+    ($(AnyNullaryLayer::$variant:ident( $name:ident ))*) => {
+        layer_boilerplate!( @impl_layer_prototype AnyNullaryLayer $($variant( $name ))* );
+
+        impl NullaryLayer for AnyNullaryLayer {
+            fn output_shape( &self ) -> Shape {
+                match *self {
+                    $( AnyNullaryLayer::$variant( ref layer ) => layer.output_shape(), )*
+                }
+            }
+
+            fn output_type( &self ) -> Type {
+                match *self {
+                    $( AnyNullaryLayer::$variant( ref layer ) => layer.output_type(), )*
+                }
+            }
+        }
+
+        $(
+            impl From< $name > for AnyNullaryLayer {
+                #[inline]
+                fn from( layer: $name ) -> Self {
+                    AnyNullaryLayer::$variant( layer )
+                }
+            }
+        )*
+    };
+
+    ($(AnyUnaryLayer::$variant:ident( $name:ident ))*) => {
+        layer_boilerplate!( @impl_layer_prototype AnyUnaryLayer $($variant( $name ))* );
+
+        impl UnaryLayer for AnyUnaryLayer {
             fn output_shape( &self, input_shape: &Shape ) -> Shape {
                 match *self {
-                    $( Layer::$variant( ref layer ) => layer.output_shape( input_shape ), )*
+                    $( AnyUnaryLayer::$variant( ref layer ) => layer.output_shape( input_shape ), )*
                 }
             }
 
             fn weight_count( &self, input_shape: &Shape ) -> usize {
                 match *self {
-                    $( Layer::$variant( ref layer ) => layer.weight_count( input_shape ), )*
+                    $( AnyUnaryLayer::$variant( ref layer ) => layer.weight_count( input_shape ), )*
                 }
             }
         }
 
         $(
-            impl From< $name > for Layer {
+            impl From< $name > for AnyUnaryLayer {
                 #[inline]
                 fn from( layer: $name ) -> Self {
-                    Layer::$variant( layer )
-                }
-            }
-
-            impl< 'a > From< &'a $name > for Layer {
-                #[inline]
-                fn from( layer: &'a $name ) -> Self {
-                    layer.clone().into()
-                }
-            }
-
-            impl< 'a > From< &'a mut $name > for Layer {
-                #[inline]
-                fn from( layer: &'a mut $name ) -> Self {
-                    layer.clone().into()
+                    AnyUnaryLayer::$variant( layer )
                 }
             }
         )*
-    }
-}
+    };
 
-impl< 'a > From< &'a Layer > for Layer {
-    #[inline]
-    fn from( layer: &'a Layer ) -> Self {
-        layer.clone()
-    }
-}
+    ($(AnyBinaryLayer::$variant:ident( $name:ident ))*) => {
+        layer_boilerplate!( @impl_layer_prototype AnyBinaryLayer $($variant( $name ))* );
 
-impl< 'a > From< &'a mut Layer > for Layer {
-    #[inline]
-    fn from( layer: &'a mut Layer ) -> Self {
-        layer.clone()
-    }
+        impl BinaryLayer for AnyBinaryLayer {
+            fn output_shape( &self, input_shape_1: &Shape, input_shape_2: &Shape ) -> Shape {
+                match *self {
+                    $( AnyBinaryLayer::$variant( ref layer ) => layer.output_shape( input_shape_1, input_shape_2 ), )*
+                }
+            }
+
+            fn weight_count( &self, input_shape_1: &Shape, input_shape_2: &Shape ) -> usize {
+                match *self {
+                    $( AnyBinaryLayer::$variant( ref layer ) => layer.weight_count( input_shape_1, input_shape_2 ), )*
+                }
+            }
+        }
+
+        $(
+            impl From< $name > for AnyBinaryLayer {
+                #[inline]
+                fn from( layer: $name ) -> Self {
+                    AnyBinaryLayer::$variant( layer )
+                }
+            }
+        )*
+    };
 }
 
 layer_boilerplate!(
-    Layer::Activation( LayerActivation )
-    Layer::Convolution( LayerConvolution )
-    Layer::Dense( LayerDense )
-    Layer::Dropout( LayerDropout )
-    Layer::IntoCategory( LayerIntoCategory )
-    Layer::MaxPooling( LayerMaxPooling )
-    Layer::Multiply( LayerMultiply )
-    Layer::Reshape( LayerReshape )
-    Layer::Shift( LayerShift )
-    Layer::Softmax( LayerSoftmax )
+    AnyNullaryLayer::Constant( LayerConstant )
 );
 
-pub trait IntoLayerIter {
-    type Iter: Iterator< Item = Layer >;
-    fn into_layer_iter( self ) -> Self::Iter;
-}
+layer_boilerplate!(
+    AnyUnaryLayer::Activation( LayerActivation )
+    AnyUnaryLayer::Convolution( LayerConvolution )
+    AnyUnaryLayer::Dense( LayerDense )
+    AnyUnaryLayer::Dropout( LayerDropout )
+    AnyUnaryLayer::IntoCategory( LayerIntoCategory )
+    AnyUnaryLayer::MaxPooling( LayerMaxPooling )
+    AnyUnaryLayer::Reshape( LayerReshape )
+    AnyUnaryLayer::Softmax( LayerSoftmax )
+);
 
-pub struct LayerIter< 'a, T >( slice::Iter< 'a, T > );
-
-impl< 'a, T > Iterator for LayerIter< 'a, T > where &'a T: Into< Layer > {
-    type Item = Layer;
-    fn next( &mut self ) -> Option< Self::Item > {
-        self.0.next().map( |layer| layer.into() )
-    }
-}
-
-impl< 'a, T > IntoLayerIter for &'a [T] where &'a T: Into< Layer > {
-    type Iter = LayerIter< 'a, T >;
-    fn into_layer_iter( self ) -> Self::Iter {
-        LayerIter( self.into_iter() )
-    }
-}
-
-macro_rules! impl_into_layer_iter {
-    (@access $this:expr, L00) => { $this.0 };
-    (@access $this:expr, L01) => { $this.1 };
-    (@access $this:expr, L02) => { $this.2 };
-    (@access $this:expr, L03) => { $this.3 };
-    (@access $this:expr, L04) => { $this.4 };
-    (@access $this:expr, L05) => { $this.5 };
-    (@access $this:expr, L06) => { $this.6 };
-    (@access $this:expr, L07) => { $this.7 };
-    (@access $this:expr, L08) => { $this.8 };
-    (@access $this:expr, L09) => { $this.9 };
-    (@access $this:expr, L10) => { $this.10 };
-    (@access $this:expr, L11) => { $this.11 };
-    (@access $this:expr, L12) => { $this.12 };
-    (@access $this:expr, L13) => { $this.13 };
-    (@access $this:expr, L14) => { $this.14 };
-    (@access $this:expr, L15) => { $this.15 };
-    (@access $this:expr, L16) => { $this.16 };
-    (@access $this:expr, L17) => { $this.17 };
-    (@access $this:expr, L18) => { $this.18 };
-    (@access $this:expr, L19) => { $this.19 };
-    (@access $this:expr, L20) => { $this.20 };
-    (@access $this:expr, L21) => { $this.21 };
-    (@access $this:expr, L22) => { $this.22 };
-    (@access $this:expr, L23) => { $this.23 };
-    (@access $this:expr, L24) => { $this.24 };
-    (@access $this:expr, L25) => { $this.25 };
-    (@access $this:expr, L26) => { $this.26 };
-    (@access $this:expr, L27) => { $this.27 };
-    (@access $this:expr, L28) => { $this.28 };
-    (@access $this:expr, L29) => { $this.29 };
-
-    (@body $this:expr, $initial_type:ident $($type:ident)*) => {
-        iter::once( $this.0.into() )
-        $(
-            .chain( iter::once(
-                impl_into_layer_iter!( @access $this, $type ).into()
-            ))
-        )*
-    };
-
-    (@iter_type $type:ident) => {
-        iter::Once< Layer >
-    };
-
-    (@iter_type $lhs:ident $($rhs:ident)*) => {
-        iter::Chain< impl_into_layer_iter!( @iter_type $($rhs)* ), iter::Once< Layer > >
-    };
-
-    (@impl $($type:ident)*) => {
-        impl< $($type),* > IntoLayerIter for ($($type,)*) where $($type: Into< Layer >),* {
-            type Iter = impl_into_layer_iter!( @iter_type $($type)* );
-            fn into_layer_iter( self ) -> Self::Iter {
-                impl_into_layer_iter!( @body self, $($type)* )
-            }
-        }
-    };
-
-    (@call_1 [$lhs:ident $($dummy_type:ident)*] [$($type:ident)*]) => {
-        impl_into_layer_iter!( @impl $($type)* );
-        impl_into_layer_iter!( @call_1 [$($dummy_type)*] [$($type)* $lhs] );
-    };
-
-    (@call_1 [] [$($type:ident)*]) => {};
-
-    (@call [$lhs:ident $($dummy_type:ident)*] [$($type:ident)*]) => {
-        impl_into_layer_iter!( @call_1 [$($dummy_type)*] [$lhs $($type)*] );
-    };
-
-    () => {
-        impl_into_layer_iter!(
-            @call
-                [
-                    L00 L01 L02 L03 L04 L05 L06 L07 L08 L09
-                    L10 L11 L12 L13 L14 L15 L16 L17 L18 L19
-                    L20 L21 L22 L23 L24 L25 L26 L27 L28 L29
-                ]
-                []
-        );
-    };
-}
-
-impl< A > IntoLayerIter for A where A: Into< Layer > {
-    type Iter = iter::Once< Layer >;
-    fn into_layer_iter( self ) -> Self::Iter {
-        iter::once( self.into() )
-    }
-}
-
-impl IntoLayerIter for () {
-    type Iter = iter::Empty< Layer >;
-    fn into_layer_iter( self ) -> Self::Iter {
-        iter::empty()
-    }
-}
-
-/*
-    This is what this generates:
-
-        impl< A, B > IntoLayerIter for (A, B) where A: Into< Layer >, B: Into< Layer > {
-            type Iter = iter::Chain< iter::Once< Layer >, iter::Once< Layer > >;
-            fn into_layer_iter( self ) -> Self::Iter {
-                iter::once( self.0.into() )
-                    .chain( iter::once( self.1.into() ) )
-            }
-        }
-
-        impl< A, B, C > IntoLayerIter for (A, B, C) where A: Into< Layer >, B: Into< Layer >, C: Into< Layer > {
-            type Iter = iter::Chain< iter::Chain< iter::Once< Layer >, iter::Once< Layer > >, iter::Once< Layer > >;
-            fn into_layer_iter( self ) -> Self::Iter {
-                iter::once( self.0.into() )
-                    .chain( iter::once( self.1.into() ) )
-                    .chain( iter::once( self.2.into() ) )
-            }
-        }
-*/
-
-impl_into_layer_iter!();
+layer_boilerplate!(
+    AnyBinaryLayer::Add( LayerAdd )
+    AnyBinaryLayer::Mul( LayerMul )
+);
 
 #[test]
 fn test_layer_convolution_prototype() {
