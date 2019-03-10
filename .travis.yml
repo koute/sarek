@@ -4,7 +4,7 @@ dist: xenial
 sudo: required
 
 install:
-  - pip install --user tensorflow==1.13.1 --progress-bar off
+  - pip3 install --user tensorflow==1.13.1 --progress-bar off
 
 custom:
   test: &test
