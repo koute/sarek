@@ -7,6 +7,10 @@
 #![allow(clippy::new_without_default_derive)]
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::type_complexity)]
+#![deny(bare_trait_objects)]
+#![deny(unused_extern_crates)]
+#![deny(ellipsis_inclusive_range_patterns)]
+#![deny(explicit_outlives_requirements)]
 
 #[macro_use]
 extern crate derive_more;
