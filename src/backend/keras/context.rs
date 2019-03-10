@@ -47,6 +47,10 @@ impl Context {
         let np_version: String = np.get( "version" )?.getattr( "version" )?.extract()?;
         info!( "Using numpy {}", np_version );
 
+        let logging = tf.getattr( "logging" )?;
+        let log_level = logging.getattr( "ERROR" )?;
+        logging.getattr( "set_verbosity" )?.call( (log_level,), None )?;
+
         let ctx = Context { _dummy: () };
         Ok( ctx )
     }
