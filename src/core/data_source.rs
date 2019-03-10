@@ -67,7 +67,13 @@ pub trait DataSourceExt: DataSource {
     /// Will panic if the `data_type` of this data source doesn't match
     /// the type of the `output` slice, or for any of the same reasons as `raw_gather_bytes_into`.
     fn gather_into< T, I >( &self, indices: I, output: &mut [T] ) where I: ToIndices, T: DataType {
-        assert_eq!( T::TYPE, self.data_type() );
+        assert_eq!(
+            T::TYPE,
+            self.data_type(),
+            "Tried to gather data of type {} into a slice of type {}",
+            self.data_type(),
+            T::TYPE
+        );
         self.gather_bytes_into( indices, as_byte_slice_mut( output ) );
     }
 
