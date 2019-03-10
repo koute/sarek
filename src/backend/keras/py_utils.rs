@@ -1,4 +1,7 @@
 use {
+    log::{
+        error
+    },
     std::{
         error::{
             Error
@@ -9,6 +12,7 @@ use {
         prelude::*,
         types::{
             PyDict,
+            PyList,
             PyObjectRef
         }
     }
@@ -37,24 +41,50 @@ pub fn py_to_string< T >( py: Python, obj: T ) -> String where T: ToPyObject {
     message
 }
 
+struct PyConvertedErr {
+    message: String,
+    traceback: Option< String >
+}
+
+impl Error for PyConvertedErr {}
+impl fmt::Display for PyConvertedErr {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        self.message.fmt( fmt )
+    }
+}
+
+impl fmt::Debug for PyConvertedErr {
+    fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
+        self.message.fmt( fmt )
+    }
+}
+
+impl PyConvertedErr {
+    fn new( py: Python, error: PyErr ) -> Self {
+        let traceback = error.ptraceback.as_ref().map( |traceback| {
+            let tb_ns = py.import( "traceback" ).unwrap();
+            let traceback = tb_ns.getattr( "format_tb" ).unwrap().call( (traceback,), None ).unwrap();
+            let traceback = traceback.cast_as::< PyList >().unwrap();
+            let mut output = String::new();
+            for line in traceback.iter() {
+               let line: String = line.extract().unwrap();
+               output.push_str( &line );
+               output.push( '\n' );
+            }
+            output
+        });
+        let message = py_to_string( py, error );
+
+        PyConvertedErr {
+            message,
+            traceback
+        }
+    }
+}
+
 pub fn py_err( py: Python, error: PyErr ) -> Box< Error + Send > {
-    let message = py_to_string( py, error );
-
-    struct Err( String );
-    impl Error for Err {}
-    impl fmt::Display for Err {
-        fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-            self.0.fmt( fmt )
-        }
-    }
-
-    impl fmt::Debug for Err {
-        fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
-            self.0.fmt( fmt )
-        }
-    }
-
-    Box::new( Err( message ) )
+    let error = PyConvertedErr::new( py, error );
+    Box::new( error )
 }
 
 pub trait PyResultExt< T > {
@@ -63,6 +93,17 @@ pub trait PyResultExt< T > {
 
 impl< T > PyResultExt< T > for Result< T, PyErr > {
     fn unwrap_py( self, py: Python ) -> T {
-        self.map_err( |err| py_err( py, err ) ).unwrap()
+        match self {
+            Ok( value ) => value,
+            Err( error ) => {
+                let error = PyConvertedErr::new( py, error );
+                error!( "Python error: {}", error );
+                if let Some( ref traceback ) = error.traceback {
+                    error!( "Python traceback:\n  {}", traceback.trim() );
+                }
+
+                panic!( "`unwrap_py` called on a Python error: {}", error );
+            }
+        }
     }
 }
