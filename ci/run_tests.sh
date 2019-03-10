@@ -11,3 +11,4 @@ echo "Python version: `python3.7 --version`"
 cargo build
 cargo build --example mnist
 cargo build --example cifar10
+cargo test
