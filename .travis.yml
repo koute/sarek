@@ -1,0 +1,21 @@
+language: rust
+
+dist: trusty
+sudo: false
+
+custom:
+  test: &test
+    stage: test
+    cache:
+      cargo: true
+    script:
+      - ./ci/run_tests.sh
+
+jobs:
+  include:
+    - <<: *test
+      os: linux
+      rust: nightly-2019-03-08
+    - <<: *test
+      os: linux
+      rust: nightly
