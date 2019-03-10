@@ -11,15 +11,15 @@ easy to use, minimal, fast and production ready.
 
 ## Requirements
 
-Currently this only works on Rust nightly and requires Python 3.7, TensorFlow 1.12, and Numpy 1.15
+Currently this only works on Rust nightly and requires Python 3.7, TensorFlow 1.13, and Numpy 1.15
 **at runtime** as it's using TensorFlow Keras (through Python!). Might work with older versions;
 no guarantees though.
 
-Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if possible use 1.13
+Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; don't use those versions.
 
 ## Tentative short-term roadmap
 
-   * [X] Support TensorFlow Keras as a backend (battle tested, but very heavy)
+   * [X] Support TensorFlow Keras as a backend (due to how buggy TensorFlow is this is only temporarily the default)
       * [X] Support basic layer types:
          * [X] Fully connected
          * [X] Dropout
@@ -32,6 +32,10 @@ Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if poss
          * [X] Softmax
          * [X] Convolutional
          * [X] Max pooling
+         * [X] Add
+         * [X] Mul
+   * [X] Support building sequential models
+   * [X] Support building graph models
    * [X] Add a MNIST example
    * [X] Add a CIFAR-10 example
       * [ ] Train it to a reasonable accuracy
@@ -49,7 +53,6 @@ Warning: TensorFlow 1.12 (and possibly 1.11) has a broken dropout layer; if poss
    * Support more layer types:
       * [ ] Batch normalization (maybe)
       * [ ] RNN (maybe)
-   * [ ] Make the Python + TensorFlow dependency optional (runtime, so that the user doesn't need libpython3.so)
    * Add other backends:
       * [ ] Figure out a compute abstraction:
          * a) Define a custom Rust-like compute language and a source-level translator
