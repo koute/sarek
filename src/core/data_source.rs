@@ -155,7 +155,7 @@ pub trait DataSourceList {
 }
 
 pub trait IntoDataSourceVec: DataSourceList + Sized {
-    fn into_vec( self ) -> Vec< Arc< DataSource > >;
+    fn into_vec( self ) -> Vec< Arc< dyn DataSource > >;
 }
 
 pub trait DataSourceListExt: DataSourceList {
@@ -254,15 +254,15 @@ macro_rules! impl_single_element_data_source_list {
 
 impl_data_source_proxy!( ('r, S) DataSource for &'r S where S: DataSource + ?Sized );
 impl_data_source_proxy!( (S) DataSource for Arc< S > where S: DataSource + Send + ?Sized );
-impl_data_source_proxy!( () DataSource for Box< DataSource > );
+impl_data_source_proxy!( () DataSource for Box< dyn DataSource > );
 impl_data_source_proxy!( ('r, S) DataSource for MaybeOwned< 'r, S > where S: DataSource );
 
 impl_data_source_list_proxy!( ('r, S) DataSourceList for &'r S where S: DataSourceList + ?Sized );
 impl_data_source_list_proxy!( (S) DataSourceList for Arc< S > where S: DataSourceList + Send + ?Sized );
-impl_data_source_list_proxy!( () DataSourceList for Box< DataSourceList > );
+impl_data_source_list_proxy!( () DataSourceList for Box< dyn DataSourceList > );
 impl_data_source_list_proxy!( ('r, S) DataSourceList for MaybeOwned< 'r, S > where S: DataSourceList );
 
-impl_single_element_data_source_list!( () DataSourceList for Box< DataSource > );
+impl_single_element_data_source_list!( () DataSourceList for Box< dyn DataSource > );
 
 impl DataSourceList for () {
     fn data_source_count( &self ) -> usize {
@@ -314,44 +314,44 @@ impl< T > DataSourceList for Vec< T > where T: DataSource {
 }
 
 impl< T > IntoDataSourceVec for T where T: DataSource + DataSourceList + 'static {
-    fn into_vec( self ) -> Vec< Arc< DataSource > > {
-        let boxed: Arc< DataSource > = Arc::new( self );
+    fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
+        let boxed: Arc< dyn DataSource > = Arc::new( self );
         vec![ boxed ]
     }
 }
 
 impl IntoDataSourceVec for () {
-    fn into_vec( self ) -> Vec< Arc< DataSource > > {
+    fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
         Vec::new()
     }
 }
 
 impl< T > IntoDataSourceVec for Vec< T > where T: DataSource + 'static {
-    default fn into_vec( self ) -> Vec< Arc< DataSource > > {
+    default fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
         self.into_iter().map( |data| {
-            let boxed: Arc< DataSource > = Arc::new( data );
+            let boxed: Arc< dyn DataSource > = Arc::new( data );
             boxed
         }).collect()
     }
 }
 
-impl IntoDataSourceVec for Vec< Arc< DataSource > > {
-    fn into_vec( self ) -> Vec< Arc< DataSource > > {
+impl IntoDataSourceVec for Vec< Arc< dyn DataSource > > {
+    fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
         self
     }
 }
 
 impl< T > IntoDataSourceVec for &[T] where T: DataSource + Clone + 'static {
-    default fn into_vec( self ) -> Vec< Arc< DataSource > > {
+    default fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
         self.iter().map( |data| {
-            let boxed: Arc< DataSource > = Arc::new( data.clone() );
+            let boxed: Arc< dyn DataSource > = Arc::new( data.clone() );
             boxed
         }).collect()
     }
 }
 
-impl IntoDataSourceVec for &[Arc< DataSource >] {
-    fn into_vec( self ) -> Vec< Arc< DataSource > > {
+impl IntoDataSourceVec for &[Arc< dyn DataSource >] {
+    fn into_vec( self ) -> Vec< Arc< dyn DataSource > > {
         self.iter().cloned().collect()
     }
 }

@@ -35,7 +35,7 @@ impl< F: FnOnce() > CallOnce for Option< F > {
 }
 
 struct Queue {
-    deque: VecDeque< Box< CallOnce + Send > >,
+    deque: VecDeque< Box< dyn CallOnce + Send > >,
     counter: usize
 }
 
@@ -105,7 +105,7 @@ impl AsyncRunner {
 
         let cell: UnsafeCell< Option< thread::Result< R > > > = UnsafeCell::new( None );
         let return_ptr = cell.get() as usize;
-        let callback: Box< CallOnce + Send > = Box::new( Some( move || {
+        let callback: Box< dyn CallOnce + Send > = Box::new( Some( move || {
             let return_value = panic::catch_unwind( panic::AssertUnwindSafe( move || {
                 callback()
             }));
@@ -115,10 +115,10 @@ impl AsyncRunner {
             }
         }));
 
-        let callback: *mut (CallOnce + Send) = Box::into_raw( callback );
+        let callback: *mut (dyn CallOnce + Send) = Box::into_raw( callback );
         #[allow(clippy::transmute_ptr_to_ptr)]
-        let callback: *mut (CallOnce + Send + 'static) = unsafe { mem::transmute( callback ) };
-        let callback: Box< CallOnce + Send + 'static > = unsafe { Box::from_raw( callback ) };
+        let callback: *mut (dyn CallOnce + Send + 'static) = unsafe { mem::transmute( callback ) };
+        let callback: Box< dyn CallOnce + Send + 'static > = unsafe { Box::from_raw( callback ) };
 
         queue.deque.push_back( callback );
 

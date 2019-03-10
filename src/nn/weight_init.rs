@@ -109,7 +109,7 @@ pub enum InitializeWeightsError {
 
 impl Error for InitializeWeightsError {}
 
-fn generate_normal_weights( rng: &mut RngCore, bias_count: usize, weight_count: usize, n: usize ) -> Weights {
+fn generate_normal_weights( rng: &mut dyn RngCore, bias_count: usize, weight_count: usize, n: usize ) -> Weights {
     let factor = 2.0_f32;
     let n = n as f32;
     let stddev = (factor / n).sqrt();
@@ -122,7 +122,7 @@ fn generate_normal_weights( rng: &mut RngCore, bias_count: usize, weight_count: 
     weights
 }
 
-fn generate_initial_weights( rng: &mut RngCore, model: &mut Model ) -> HashSet< NodeIndex > {
+fn generate_initial_weights( rng: &mut dyn RngCore, model: &mut Model ) -> HashSet< NodeIndex > {
     info!( "Populating the model with weights..." );
 
     let mut initialized_layers = HashSet::new();
@@ -258,9 +258,9 @@ fn collect_input_nodes(
 pub fn initialize_weights
 (
     ctx: &Context,
-    rng: &mut RngCore,
+    rng: &mut dyn RngCore,
     model: &mut Model,
-    input_data_list: &DataSourceList
+    input_data_list: &dyn DataSourceList
 ) -> Result< (), InitializeWeightsError >
 {
     let initialized_layers = generate_initial_weights( rng, model );

@@ -14,7 +14,7 @@ use {
 
 #[derive(Display)]
 #[display(fmt = "context creation failed: {}", "_0")]
-pub struct ContextCreationError( pub(crate) Box< Error + Send > );
+pub struct ContextCreationError( pub(crate) Box< dyn Error + Send > );
 
 impl fmt::Debug for ContextCreationError {
     fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {

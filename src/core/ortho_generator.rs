@@ -519,7 +519,7 @@ impl OrthogonalGenerator {
         self.scratch.clear();
     }
 
-    pub fn generate_into( &mut self, width: usize, height: usize, rng: &mut RngCore, output: &mut Vec< f32 > ) {
+    pub fn generate_into( &mut self, width: usize, height: usize, rng: &mut dyn RngCore, output: &mut Vec< f32 > ) {
         let dist = rand::distributions::Uniform::new_inclusive( 3.14 * 0.125, 3.14 * 0.875 );
         self.generate_with_angles_into( width, height, |_| dist.sample( rng ) as f32, output );
     }

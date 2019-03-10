@@ -217,7 +217,7 @@ impl BinaryLayer for LayerAdd {
 #[derive(Clone)]
 pub struct LayerConstant {
     pub(crate) name: Name,
-    pub(crate) data: Arc< DataSource >
+    pub(crate) data: Arc< dyn DataSource >
 }
 
 struct DataSourceDebug< 'a >( &'a dyn DataSource );

@@ -37,8 +37,8 @@ pub struct DataSet< I, O >
 
 type SplitDataSet =
     DataSet<
-        Vec< SplitDataSource< Arc< DataSource > > >,
-        Vec< SplitDataSource< Arc< DataSource > > >
+        Vec< SplitDataSource< Arc< dyn DataSource > > >,
+        Vec< SplitDataSource< Arc< dyn DataSource > > >
     >;
 
 impl< I, O > DataSet< I, O >

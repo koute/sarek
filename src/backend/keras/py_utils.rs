@@ -82,7 +82,7 @@ impl PyConvertedErr {
     }
 }
 
-pub fn py_err( py: Python, error: PyErr ) -> Box< Error + Send > {
+pub fn py_err( py: Python, error: PyErr ) -> Box< dyn Error + Send > {
     let error = PyConvertedErr::new( py, error );
     Box::new( error )
 }

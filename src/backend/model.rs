@@ -184,7 +184,7 @@ impl ModelInstance {
     }
 
     pub(crate) fn train_for_epoch< F >( &mut self, batch_size: usize, fill_data: F ) -> f32
-        where F: FnMut( &mut RawBufferList, &mut RawBufferList ) -> bool + Send
+        where F: FnMut( &mut dyn RawBufferList, &mut dyn RawBufferList ) -> bool + Send
     {
         match self.kind {
             ModelInstanceKind::Keras( ref mut model_instance ) => {
