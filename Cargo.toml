@@ -23,7 +23,7 @@ maintenance = { status = "experimental" }
 default = ["rayon"]
 
 [dependencies]
-pyo3 = "0.6.0-alpha.4"
+pyo3 = { version = "0.6.0-alpha.4", features = ["python3"] }
 log = "0.4"
 libc = "0.2"
 smallvec = "0.6"
