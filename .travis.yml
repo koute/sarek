@@ -6,7 +6,7 @@ sudo: required
 python: 3.7
 
 install:
-  - pip install tensorflow==1.13.1 --progress-bar off
+  - pip install --user tensorflow==1.13.1 --progress-bar off
 
 custom:
   test: &test
