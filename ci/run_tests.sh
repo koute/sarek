@@ -5,7 +5,8 @@ IFS=$'\n\t'
 
 export RUST_BACKTRACE=1
 
-echo "Python version: `python --version`"
+export PYTHON_SYS_EXECUTABLE=python3
+echo "Python version: `python3 --version`"
 
 cargo build
 cargo build --example mnist
