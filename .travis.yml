@@ -8,7 +8,7 @@ before_install:
   - sudo apt-get install software-properties-common
   - sudo add-apt-repository ppa:deadsnakes/ppa -y
   - sudo apt-get update
-  - sudo apt-get install python3.7
+  - sudo apt-get install python3.7-dev
   - ls /usr/bin/python* -1
   - wget https://bootstrap.pypa.io/get-pip.py -O /tmp/get-pip.py
   - sudo python3.7 /tmp/get-pip.py
