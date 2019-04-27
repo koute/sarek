@@ -380,10 +380,18 @@ impl ModelInstance {
                             kwargs.set_item( "lr", learning_rate ).unwrap_py( py );
                             optimizers_ns.getattr( "SGD" ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py )
                         },
-                        Optimizer::Nadam( OptimizerNadam { learning_rate } ) => {
+                        Optimizer::Nadam( OptimizerNadam { learning_rate, beta_1, beta_2, epsilon, schedule_decay } ) => {
                             let kwargs = PyDict::new( py );
                             let learning_rate: f32 = learning_rate.into();
+                            let beta_1: f32 = beta_1.into();
+                            let beta_2: f32 = beta_2.into();
+                            let epsilon: f32 = epsilon.into();
+                            let schedule_decay: f32 = schedule_decay.into();
                             kwargs.set_item( "lr", learning_rate ).unwrap_py( py );
+                            kwargs.set_item( "beta_1", beta_1 ).unwrap_py( py );
+                            kwargs.set_item( "beta_2", beta_2 ).unwrap_py( py );
+                            kwargs.set_item( "epsilon", epsilon ).unwrap_py( py );
+                            kwargs.set_item( "schedule_decay", schedule_decay ).unwrap_py( py );
                             optimizers_ns.getattr( "Nadam" ).unwrap_py( py ).call( (), Some( kwargs ) ).unwrap_py( py )
                         }
                     };
