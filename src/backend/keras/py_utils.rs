@@ -1,5 +1,10 @@
 use {
     crate::{
+        backend::{
+            context::{
+                CloneableError
+            }
+        },
         core::{
             data_type::{
                 Type
@@ -48,6 +53,7 @@ pub fn py_to_string< T >( py: Python, obj: T ) -> String where T: ToPyObject {
     message
 }
 
+#[derive(Clone)]
 struct PyConvertedErr {
     message: String,
     traceback: Option< String >
@@ -89,7 +95,7 @@ impl PyConvertedErr {
     }
 }
 
-pub fn py_err( py: Python, error: PyErr ) -> Box< dyn Error + Send > {
+pub fn py_err( py: Python, error: PyErr ) -> Box< dyn CloneableError > {
     let error = PyConvertedErr::new( py, error );
     Box::new( error )
 }

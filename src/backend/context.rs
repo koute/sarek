@@ -12,9 +12,25 @@ use {
     }
 };
 
+pub trait CloneableError: Error + Send + Sync {
+    fn clone( &self ) -> Box< dyn CloneableError >;
+}
+
+impl< T > CloneableError for T where T: Error + Clone + Send + Sync + 'static {
+    fn clone( &self ) -> Box< dyn CloneableError > {
+        Box::new( self.clone() )
+    }
+}
+
 #[derive(Display)]
 #[display(fmt = "context creation failed: {}", "_0")]
-pub struct ContextCreationError( pub(crate) Box< dyn Error + Send > );
+pub struct ContextCreationError( pub(crate) Box< dyn CloneableError > );
+
+impl Clone for ContextCreationError {
+    fn clone( &self ) -> Self {
+        ContextCreationError( self.0.clone() )
+    }
+}
 
 impl fmt::Debug for ContextCreationError {
     fn fmt( &self, fmt: &mut fmt::Formatter ) -> fmt::Result {
