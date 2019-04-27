@@ -16,7 +16,7 @@ use {
             PyDict,
             PyTuple
         },
-        ToPyPointer
+        AsPyPointer
     },
     crate::{
         backend::{

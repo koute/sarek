@@ -24,8 +24,7 @@ use {
         prelude::*,
         types::{
             PyDict,
-            PyList,
-            PyObjectRef
+            PyList
         }
     }
 };
@@ -34,14 +33,6 @@ use {
 pub fn py_print( py: Python, obj: &PyObject ) {
     let args = PyDict::new( py );
     args.set_item( "v0", obj.clone_ref( py ) ).unwrap();
-    py.run( "print(v0);", None, Some( args ) ).unwrap();
-}
-
-#[allow(dead_code)]
-pub fn py_print_ref< T >( py: Python, obj: &T ) where T: AsRef< PyObjectRef > {
-    let obj = obj.as_ref();
-    let args = PyDict::new( py );
-    args.set_item( "v0", obj ).unwrap();
     py.run( "print(v0);", None, Some( args ) ).unwrap();
 }
 
