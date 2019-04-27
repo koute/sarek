@@ -2114,3 +2114,126 @@ fn test_prediction_one_input_two_outputs() {
         &[INPUTS, INPUTS]
     );
 }
+
+#[test]
+fn test_optimizer_nadam() {
+    init_logger();
+
+    const BETA_1: f32 = 0.9;
+    const BETA_2: f32 = 0.999;
+    const EPS: f32 = 1e-7;
+    const SCHEDULE_DECAY: f32 = 0.004;
+    const LEARNING_RATE: f32 = 1.11;
+    const INPUTS: &'static [f32] = &[10.22];
+    const WEIGHTS_0: &'static [f32] = &[1.33, 1.44];
+    const EXPECTED_OUTPUTS: &'static [f32] = &[3.0];
+
+    fn run_nadam( iteration_p: &mut f32, schedule_p: &mut f32, m_slice: &mut [f32], v_slice: &mut [f32], gradient_slice: &[f32] ) -> Vec< f32 > {
+        let t = *iteration_p;
+        *iteration_p += 1.0;
+
+        let old_schedule = *schedule_p;
+        let m_cache = BETA_1 * (1.0 - 0.5 * (0.96_f32.powf( t * SCHEDULE_DECAY )));
+        let m_cache_next = BETA_1 * (1.0 - 0.5 * (0.96_f32.powf( (t + 1.0) * SCHEDULE_DECAY )));
+        let schedule = old_schedule * m_cache;
+        let schedule_next = old_schedule * m_cache * m_cache_next;
+        *schedule_p = schedule;
+
+        let mut out = Vec::new();
+        for index in 0..gradient_slice.len() {
+            let g = gradient_slice[ index ];
+            let m = m_slice[ index ];
+            let v = v_slice[ index ];
+
+            let m_next = BETA_1 * m + (1.0 - BETA_1) * g;
+            let v_next = BETA_2 * v + (1.0 - BETA_2) * (g * g);
+
+            let m_next_prime = m_next / (1.0 - schedule_next);
+            let v_next_prime = v_next / (1.0 - BETA_2.powf(t));
+            let g_prime = g / (1.0 - schedule);
+
+            let delta =
+                ((1.0 - m_cache) * g_prime + m_cache_next * m_next_prime)
+                    / (v_next_prime.sqrt() + EPS);
+
+            out.push( LEARNING_RATE * delta );
+
+            m_slice[ index ] = m_next;
+            v_slice[ index ] = v_next;
+        }
+
+        out
+    }
+
+    let ctx = Context::new().unwrap();
+
+    let outputs_1 = &[WEIGHTS_0[0] + WEIGHTS_0[1] * INPUTS[0]];
+    let output_errors_1 = &[(outputs_1[0] - EXPECTED_OUTPUTS[0]) * 2.0 / outputs_1.len() as f32];
+    let input_errors_1 = &[
+        output_errors_1[0] * 1.0,
+        output_errors_1[0] * INPUTS[0]
+    ];
+
+    let mut schedule = 1.0;
+    // TensorFlow bug workaround: start at 2 under TF.
+    let mut t = if ctx.is_using_tensorflow() { 2 } else { 1 } as f32;
+    let m = &mut [0.0, 0.0];
+    let v = &mut [0.0, 0.0];
+
+    let delta_1 = run_nadam( &mut t, &mut schedule, &mut m[..], &mut v[..], input_errors_1 );
+    let weights_1 = &[
+        WEIGHTS_0[0] - delta_1[0],
+        WEIGHTS_0[1] - delta_1[1]
+    ];
+
+    let outputs_2 = &[weights_1[0] + weights_1[1] * INPUTS[0]];
+    let output_errors_2 = &[(outputs_2[0] - EXPECTED_OUTPUTS[0]) * 2.0 / outputs_2.len() as f32];
+    let input_errors_2 = &[
+        output_errors_2[0] * 1.0,
+        output_errors_2[0] * INPUTS[0]
+    ];
+
+    let delta_2 = run_nadam( &mut t, &mut schedule, &mut m[..], &mut v[..], input_errors_2 );
+    let weights_2 = &[
+        weights_1[0] - delta_2[0],
+        weights_1[1] - delta_2[1]
+    ];
+
+    let model = Model::new_sequential( INPUTS.len(), (
+        LayerDense::new( outputs_1.len() )
+            .with_name( "layer" )
+            .with_weights( WEIGHTS_0.into() )
+    ));
+
+    let inputs = SliceSource::from( INPUTS.len().into(), INPUTS );
+    let expected_outputs = SliceSource::from( EXPECTED_OUTPUTS.len().into(), EXPECTED_OUTPUTS );
+    let data_set = DataSet::new( inputs, expected_outputs );
+
+    let mut opts = TrainingOpts::new();
+    let mut optimizer = OptimizerNadam::new();
+    optimizer
+        .set_learning_rate( LEARNING_RATE )
+        .set_beta_1( BETA_1 )
+        .set_beta_2( BETA_2 )
+        .set_epsilon( EPS )
+        .set_schedule_decay( SCHEDULE_DECAY );
+    opts.set_batch_size( 1 );
+    opts.set_optimizer( optimizer );
+    opts.disable_input_normalization();
+
+    let mut instance = Trainer::new_with_opts( &ctx, model, data_set, opts ).unwrap();
+    instance.train();
+
+    let weights = instance.get_weights( "layer" ).unwrap();
+    assert_f32_slice_eq(
+        weights.to_slice::< f32 >().unwrap(),
+        weights_1
+    );
+
+    instance.train();
+    let weights = instance.get_weights( "layer" ).unwrap();
+    assert_f32_slice_eq(
+        weights.to_slice::< f32 >().unwrap(),
+        weights_2
+    );
+}

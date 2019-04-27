@@ -53,4 +53,11 @@ impl Context {
         let ctx = keras::Context::new()?;
         Ok( Context( ContextKind::Keras( ctx ) ) )
     }
+
+    #[doc(hidden)]
+    pub fn is_using_tensorflow( &self ) -> bool {
+        match self.0 {
+            ContextKind::Keras( _ ) => true
+        }
+    }
 }
